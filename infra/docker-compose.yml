@@ -64,6 +64,20 @@ services:
       db:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # SERVER-ONLY — used by /api/proxy route handlers; never NEXT_PUBLIC_*
+      BACKEND_URL: ${BACKEND_URL:-http://api:8000}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
 volumes:
   pgdata:
     name: parent-network-pgdata

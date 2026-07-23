@@ -8,7 +8,7 @@ BACKEND  := backend
 
 .PHONY: up down logs test migrate
 
-## Build and start db, api, and worker in the background
+## Build and start db, api, worker, and frontend in the background
 up:
 	@test -f infra/.env || (echo "Missing infra/.env — copy from infra/.env.example" && exit 1)
 	$(COMPOSE) up -d --build

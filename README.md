@@ -4,14 +4,15 @@ A locally hosted family network visibility platform that ingests **read-only** d
 
 ## Status
 
-Backend API + worker, Docker Compose stack, and PostgreSQL schema (Alembic) are in place. Frontend and ingestion are not yet implemented.
+Backend API + worker, Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place. Ingestion is not yet implemented.
 
 ## Quick start
 
 ```bash
 cp infra/.env.example infra/.env
-make up          # db + api + worker (api runs alembic upgrade head on start)
+make up          # db + api + worker + frontend (api runs alembic upgrade head on start)
 curl localhost:8000/health
+open http://localhost:3000/health   # green when proxy → API works
 make migrate     # apply migrations manually (optional; also runs on api start)
 make logs        # follow all service logs
 make test        # backend pytest
@@ -20,13 +21,13 @@ make down        # stop containers (volume kept)
 
 | Target | What it does |
 |--------|----------------|
-| `make up` | Build and start `db`, `api`, and `worker` |
+| `make up` | Build and start `db`, `api`, `worker`, and `frontend` |
 | `make down` | Stop containers (named volume kept) |
 | `make logs` | Follow logs for all services |
 | `make migrate` | Run `alembic upgrade head` in a one-off api container |
 | `make test` | Run backend pytest in a one-off api container (starts `db`) |
 
-API listens on port **8000** (`GET /health`, `GET /version`).
+API listens on port **8000** (`GET /health`, `GET /version`). Dashboard listens on port **3000** (browser calls `/api/proxy/*` only).
 
 ## Repository layout
 
@@ -58,5 +59,5 @@ Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS
 
 ## Next steps
 
-1. Scaffold the Next.js frontend with server-side API proxy
-2. Drop fixture payloads into `fixtures/` and wire offline ingestion tests
+1. Drop fixture payloads into `fixtures/` and wire offline ingestion tests
+2. Build out dashboard pages (Overview, Live, People, Devices, Findings, Review)
