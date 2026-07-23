@@ -31,6 +31,19 @@ const health = await apiFetch<{ status: string }>("/health");
 // → server forwards to ${BACKEND_URL}/health with Authorization: Bearer ${ADMIN_TOKEN}
 ```
 
+## OpenAPI types
+
+Frontend types come from the FastAPI OpenAPI schema (not hand-written):
+
+```bash
+# from repo root
+make openapi
+# → backend/openapi.json
+# → frontend/src/generated/openapi.ts
+```
+
+Docker frontend builds regenerate these in-image. Locally, run `make openapi` after backend schema changes.
+
 ## Local development
 
 ```bash
@@ -39,6 +52,7 @@ cp ../infra/.env.example ../infra/.env   # if needed
 export BACKEND_URL=http://localhost:8000
 export ADMIN_TOKEN=changeme              # must match infra/.env
 npm install
+make -C .. openapi   # or: npm run generate:api after exporting schema
 npm run dev
 ```
 

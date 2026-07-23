@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/pages/placeholder-page";
+import { OverviewDashboard } from "@/components/overview/overview-dashboard";
 
 export default function OverviewPage() {
-  return (
-    <PlaceholderPage
-      title="Overview"
-      description="Household summary will appear here."
-    />
-  );
+  return <OverviewDashboard />;
 }

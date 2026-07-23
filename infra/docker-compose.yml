@@ -127,8 +127,8 @@ services:
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: frontend/Dockerfile
     restart: unless-stopped
     environment:
       # SERVER-ONLY — used by /api/proxy route handlers; never NEXT_PUBLIC_*

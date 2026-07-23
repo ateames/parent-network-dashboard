@@ -6,12 +6,17 @@
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file infra/.env
 BACKEND  := backend
 
-.PHONY: up down logs test migrate
+.PHONY: up down logs test migrate openapi
 
 ## Build and start db, api, worker, and frontend in the background
 up:
 	@test -f infra/.env || (echo "Missing infra/.env — copy from infra/.env.example" && exit 1)
 	$(COMPOSE) up -d --build
+
+## Export FastAPI OpenAPI schema and regenerate frontend TypeScript types
+openapi:
+	cd $(BACKEND) && python3.11 scripts/export_openapi.py
+	cd frontend && npm run generate:api
 
 ## Stop containers (named volume kept)
 down:

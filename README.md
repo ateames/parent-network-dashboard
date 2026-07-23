@@ -26,6 +26,7 @@ make down        # stop containers (volume kept)
 | `make logs` | Follow logs for all services |
 | `make migrate` | Run `alembic upgrade head` in a one-off api container |
 | `make test` | Run backend pytest in a one-off api container (starts `db`) |
+| `make openapi` | Export OpenAPI schema and regenerate frontend TypeScript types |
 
 API listens on port **8000** (`GET /health`, `GET /version`). Dashboard listens on port **3000** (browser calls `/api/proxy/*` only).
 
