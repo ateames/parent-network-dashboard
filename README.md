@@ -4,7 +4,27 @@ A locally hosted family network visibility platform that ingests **read-only** d
 
 ## Status
 
-Monorepo skeleton only. Application frameworks are not scaffolded yet.
+Backend API + worker and Docker Compose stack are scaffolded. Frontend and ingestion are not yet implemented.
+
+## Quick start
+
+```bash
+cp infra/.env.example infra/.env
+make up          # db + api + worker
+curl localhost:8000/health
+make logs        # follow all service logs
+make test        # backend pytest
+make down        # stop containers (volume kept)
+```
+
+| Target | What it does |
+|--------|----------------|
+| `make up` | Build and start `db`, `api`, and `worker` |
+| `make down` | Stop containers (named volume kept) |
+| `make logs` | Follow logs for all services |
+| `make test` | Run backend pytest in a one-off api container |
+
+API listens on port **8000** (`GET /health`, `GET /version`).
 
 ## Repository layout
 
@@ -36,7 +56,6 @@ Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS
 
 ## Next steps
 
-1. Scaffold the FastAPI backend (`api` + `worker` entrypoints) and PostgreSQL schema
+1. Add PostgreSQL schema + Alembic migrations
 2. Scaffold the Next.js frontend with server-side API proxy
-3. Add Docker Compose under `infra/` and env templates
-4. Drop fixture payloads into `fixtures/` and wire offline ingestion tests
+3. Drop fixture payloads into `fixtures/` and wire offline ingestion tests
