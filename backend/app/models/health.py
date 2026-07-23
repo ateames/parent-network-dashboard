@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ source_health_status_enum = ENUM(
 
 class SourceHealth(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "source_health"
+    __table_args__ = (UniqueConstraint("source", name="uq_source_health_source"),)
 
     source: Mapped[IngestSource] = mapped_column(ingest_source_enum, nullable=False)
     last_success_at: Mapped[datetime | None] = mapped_column(
@@ -39,6 +40,12 @@ class SourceHealth(UUIDPrimaryKeyMixin, Base):
         nullable=False,
     )
     detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     checked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
