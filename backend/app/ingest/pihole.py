@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, settings
 from app.db import AsyncSessionLocal, engine
 from app.health.source_health import record_attempt, record_failure, record_success
+from app.identity.resolver import ClientObservation, resolve_observation
 from app.models.dns import DnsQuery
 from app.models.enums import DnsQueryStatus, IngestBatchStatus, IngestSource
 from app.models.raw import IngestBatch, RawPiholeEvent
@@ -352,6 +353,23 @@ async def persist_queries(
                     raw_pihole_event_id=raw.id,
                     ingest_batch_id=batch.id,
                 )
+            )
+            # Durable identity: Pi-hole client name is weak/unknown without MAC.
+            # Never merge into an existing device on shared IP alone.
+            pihole_client = (
+                row.client_identifier
+                if row.client_ip is None or row.client_identifier != row.client_ip
+                else None
+            )
+            await resolve_observation(
+                session,
+                ClientObservation(
+                    observed_at=row.queried_at,
+                    source="pihole_api",
+                    first_seen=row.queried_at,
+                    pihole_client=pihole_client,
+                    ip=row.client_ip,
+                ),
             )
 
         finished = datetime.now(UTC)
