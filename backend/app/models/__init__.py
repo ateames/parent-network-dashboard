@@ -7,6 +7,7 @@ from app.models.enums import (
     CorrelationStatus,
     DnsQueryStatus,
     FindingConfidence,
+    FindingFeedbackClassification,
     FindingSeverity,
     FindingStatus,
     IdentifierKind,
@@ -15,7 +16,7 @@ from app.models.enums import (
     PersonRole,
     SourceHealthStatus,
 )
-from app.models.findings import Finding
+from app.models.findings import Finding, FindingFeedback, FindingSuppression
 from app.models.health import AuditLog, SourceHealth
 from app.models.identity import Device, DeviceIdentifier, IpAssignment
 from app.models.people import Person, PersonDevice
@@ -39,8 +40,11 @@ __all__ = [
     "DnsQueryStatus",
     "Finding",
     "FindingConfidence",
+    "FindingFeedback",
+    "FindingFeedbackClassification",
     "FindingSeverity",
     "FindingStatus",
+    "FindingSuppression",
     "IdentifierKind",
     "IngestBatch",
     "IngestBatchStatus",
@@ -69,6 +73,8 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "dns_activity",
         "activity_baseline",
         "finding",
+        "finding_feedback",
+        "finding_suppression",
         "device",
         "device_identifier",
         "ip_assignment",

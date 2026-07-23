@@ -6,6 +6,11 @@ from app.findings.engine import (
     evaluate_and_persist,
     evaluate_rules,
 )
+from app.findings.feedback import (
+    matching_key_for_finding,
+    status_for_classification,
+    suppression_matching_key,
+)
 from app.findings.phrasing import (
     assert_honest_dns_language,
     contains_viewing_claim,
@@ -20,6 +25,9 @@ __all__ = [
     "contains_viewing_claim",
     "evaluate_and_persist",
     "evaluate_rules",
+    "matching_key_for_finding",
     "phrase_dns_lookup",
+    "status_for_classification",
     "subject_label",
+    "suppression_matching_key",
 ]

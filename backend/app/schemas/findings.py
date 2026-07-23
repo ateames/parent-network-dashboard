@@ -1,4 +1,4 @@
-"""Pydantic schemas for findings API responses."""
+"""Pydantic schemas for findings, feedback, and suppressions."""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import FindingConfidence, FindingSeverity, FindingStatus
+from app.models.enums import (
+    FindingConfidence,
+    FindingFeedbackClassification,
+    FindingSeverity,
+    FindingStatus,
+)
 
 
 class FindingOut(BaseModel):
@@ -36,4 +41,39 @@ class FindingOut(BaseModel):
 
 class FindingListOut(BaseModel):
     items: list[FindingOut] = Field(default_factory=list)
+    count: int = 0
+
+
+class FindingFeedbackIn(BaseModel):
+    classification: FindingFeedbackClassification
+
+
+class FindingFeedbackOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    finding_id: UUID
+    classification: FindingFeedbackClassification
+    actor: str
+    created_at: datetime
+    finding: FindingOut
+    suppression_id: UUID | None = None
+
+
+class SuppressionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    matching_key: str
+    rule_id: str
+    device_id: UUID | None = None
+    person_id: UUID | None = None
+    domain_pattern: str
+    source_finding_id: UUID | None = None
+    created_by: str
+    created_at: datetime
+
+
+class SuppressionListOut(BaseModel):
+    items: list[SuppressionOut] = Field(default_factory=list)
     count: int = 0

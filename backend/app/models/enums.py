@@ -77,3 +77,16 @@ class FindingConfidence(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class FindingFeedbackClassification(StrEnum):
+    """Parent classification of a finding; drives status + suppression."""
+
+    EXPECTED = "expected"
+    CONCERNING = "concerning"
+    INCORRECT = "incorrect"
+    IGNORE_ONCE = "ignore_once"
+    SUPPRESS_SIMILAR = "suppress_similar"
+    NEEDS_INVESTIGATION = "needs_investigation"
+    ACKNOWLEDGE = "acknowledge"
+    RESOLVE = "resolve"

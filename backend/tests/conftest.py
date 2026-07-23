@@ -26,6 +26,8 @@ ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
 
 # Truncated before each DB test so commits in one test do not leak into another.
 _TRUNCATE_TABLES = (
+    "finding_feedback",
+    "finding_suppression",
     "finding",
     "activity_baseline",
     "dns_activity",

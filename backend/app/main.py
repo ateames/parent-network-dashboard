@@ -15,6 +15,7 @@ from app.api.devices import router as devices_router
 from app.api.findings import router as findings_router
 from app.api.people import router as people_router
 from app.api.sources import router as sources_router
+from app.api.suppressions import router as suppressions_router
 from app.config import settings
 
 app = FastAPI(title="Parent Network Dashboard API", version=settings.app_version)
@@ -24,6 +25,7 @@ app.include_router(people_router)
 app.include_router(correlation_router)
 app.include_router(activity_router)
 app.include_router(findings_router)
+app.include_router(suppressions_router)
 app.include_router(dashboard_router)
 
 

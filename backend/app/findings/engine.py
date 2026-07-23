@@ -26,6 +26,7 @@ from app.activity.baseline import (
     row_to_baseline,
 )
 from app.config import Settings, settings
+from app.findings.feedback import matching_key_for_finding
 from app.findings.phrasing import (
     assert_honest_dns_language,
     phrase_blocked_burst,
@@ -43,7 +44,7 @@ from app.models.enums import (
     FindingStatus,
     IdentifierKind,
 )
-from app.models.findings import Finding
+from app.models.findings import Finding, FindingSuppression
 from app.models.identity import Device
 from app.models.people import PersonDevice
 from app.models.raw import RawUnifiEvent, RawUnifiSyslog
@@ -1297,6 +1298,28 @@ async def _load_security_events(
     return events
 
 
+async def load_suppression_keys(session: AsyncSession) -> set[str]:
+    """Return active suppression matching keys."""
+    result = await session.execute(select(FindingSuppression.matching_key))
+    return {row[0] for row in result.all()}
+
+
+def filter_suppressed_drafts(
+    drafts: Sequence[FindingDraft],
+    suppression_keys: set[str],
+) -> list[FindingDraft]:
+    """Drop drafts whose matching key is actively suppressed."""
+    if not suppression_keys:
+        return list(drafts)
+    kept: list[FindingDraft] = []
+    for draft in drafts:
+        key, _ = matching_key_for_finding(draft)
+        if key in suppression_keys:
+            continue
+        kept.append(draft)
+    return kept
+
+
 async def evaluate_and_persist(
     session: AsyncSession,
     *,
@@ -1389,6 +1412,8 @@ async def evaluate_and_persist(
         security_events=security_events,
         now=at,
     )
+    suppression_keys = await load_suppression_keys(session)
+    drafts = filter_suppressed_drafts(drafts, suppression_keys)
     if persist:
         for draft in drafts:
             await upsert_finding(session, draft)

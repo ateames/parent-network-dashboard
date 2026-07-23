@@ -1,4 +1,4 @@
-"""Persisted explainable findings (versioned deterministic rules)."""
+"""Persisted explainable findings, parent feedback, and suppressions."""
 
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, LogicVersionMixin, UUIDPrimaryKeyMixin
-from app.models.enums import FindingConfidence, FindingSeverity, FindingStatus
+from app.models.enums import (
+    FindingConfidence,
+    FindingFeedbackClassification,
+    FindingSeverity,
+    FindingStatus,
+)
 
 if TYPE_CHECKING:
     from app.models.identity import Device
@@ -34,6 +39,13 @@ finding_status_enum = ENUM(
 finding_confidence_enum = ENUM(
     FindingConfidence,
     name="finding_confidence",
+    values_callable=lambda e: [m.value for m in e],
+    create_type=True,
+)
+
+finding_feedback_classification_enum = ENUM(
+    FindingFeedbackClassification,
+    name="finding_feedback_classification",
     values_callable=lambda e: [m.value for m in e],
     create_type=True,
 )
@@ -101,3 +113,71 @@ class Finding(UUIDPrimaryKeyMixin, LogicVersionMixin, Base):
 
     device: Mapped[Device | None] = relationship()
     person: Mapped[Person | None] = relationship()
+    feedback: Mapped[list[FindingFeedback]] = relationship(
+        back_populates="finding",
+        order_by="FindingFeedback.created_at",
+    )
+
+
+class FindingFeedback(UUIDPrimaryKeyMixin, Base):
+    """Parent classification of a finding (who / when / what)."""
+
+    __tablename__ = "finding_feedback"
+    __table_args__ = (
+        Index("ix_finding_feedback_finding_id", "finding_id"),
+        Index("ix_finding_feedback_created_at", "created_at"),
+    )
+
+    finding_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("finding.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    classification: Mapped[FindingFeedbackClassification] = mapped_column(
+        finding_feedback_classification_enum,
+        nullable=False,
+    )
+    actor: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    finding: Mapped[Finding] = relationship(back_populates="feedback")
+
+
+class FindingSuppression(UUIDPrimaryKeyMixin, Base):
+    """Active rule that skips equivalent low-value findings on future runs."""
+
+    __tablename__ = "finding_suppression"
+    __table_args__ = (
+        UniqueConstraint("matching_key", name="uq_finding_suppression_matching_key"),
+        Index("ix_finding_suppression_rule_id", "rule_id"),
+        Index("ix_finding_suppression_created_at", "created_at"),
+    )
+
+    matching_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    device_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("device.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("person.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    domain_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("finding.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
