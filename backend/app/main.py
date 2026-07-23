@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from app import __version__ as package_version
 from app.api.activity import router as activity_router
 from app.api.correlation import router as correlation_router
+from app.api.dashboard import router as dashboard_router
 from app.api.devices import router as devices_router
 from app.api.people import router as people_router
 from app.api.sources import router as sources_router
@@ -21,6 +22,7 @@ app.include_router(devices_router)
 app.include_router(people_router)
 app.include_router(correlation_router)
 app.include_router(activity_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

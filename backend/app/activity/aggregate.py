@@ -435,7 +435,7 @@ async def _mac_to_device_ids(
     return {row.value: row.device_id for row in result.scalars().all()}
 
 
-async def _load_unifi_records(
+async def load_unifi_records(
     session: AsyncSession,
     *,
     device_ids: set[uuid.UUID],
@@ -534,7 +534,7 @@ async def aggregate_activity(
         device_ids=device_ids,
         before=start,
     )
-    unifi_records = await _load_unifi_records(
+    unifi_records = await load_unifi_records(
         session,
         device_ids=device_ids,
         window_start=start,
