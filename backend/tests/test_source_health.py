@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.health.source_health import (
@@ -80,18 +80,6 @@ def test_staleness_seconds_none_when_never_succeeded() -> None:
 def test_staleness_seconds_from_last_success() -> None:
     now = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
     assert staleness_seconds(now - timedelta(seconds=42), now) == 42
-
-
-@pytest.fixture
-async def db_session(migrated_engine: AsyncEngine) -> AsyncSession:
-    factory = async_sessionmaker(
-        bind=migrated_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with factory() as session:
-        yield session
-        await session.rollback()
 
 
 @pytest.fixture

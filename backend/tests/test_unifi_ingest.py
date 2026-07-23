@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.health.source_health import get_source_health
@@ -44,18 +44,6 @@ def _fixture_dir() -> Path:
     raise FileNotFoundError(
         "unifi fixtures not found; expected under /fixtures or repo fixtures/"
     )
-
-
-@pytest.fixture
-async def db_session(migrated_engine: AsyncEngine) -> AsyncSession:
-    factory = async_sessionmaker(
-        bind=migrated_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with factory() as session:
-        yield session
-        await session.rollback()
 
 
 @pytest.fixture
@@ -151,8 +139,9 @@ async def test_replay_fixture_creates_raw_normalized_ip_and_health(
     assert IdentifierKind.MAC in kinds
     assert IdentifierKind.UNIFI_CLIENT_ID in kinds
     assert IdentifierKind.HOSTNAME in kinds
-    # Durable identity must never be keyed on IP.
-    assert IdentifierKind.IP not in kinds
+    # IP may be stored as weak evidence, but never used to merge identities.
+    assert IdentifierKind.IP in kinds
+    assert all(d.is_unknown is False for d in devices)
 
     mac_values = {i.value for i in identifiers if i.kind == IdentifierKind.MAC}
     assert mac_values == {

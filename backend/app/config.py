@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # Source health: this many consecutive failures => down.
     source_health_max_failures: int = 3
 
+    # Device list "online" filter: last_seen within this many seconds.
+    device_online_seconds: int = 300
+
 
 @lru_cache
 def get_settings() -> Settings:

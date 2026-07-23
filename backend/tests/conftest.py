@@ -12,12 +12,34 @@ import pytest
 import pytest_asyncio
 from alembic.config import Config
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from alembic import command
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
+
+# Truncated before each DB test so commits in one test do not leak into another.
+_TRUNCATE_TABLES = (
+    "ip_assignment",
+    "device_identifier",
+    "person_device",
+    "person",
+    "device",
+    "dns_query",
+    "raw_pihole_event",
+    "raw_unifi_client",
+    "raw_unifi_event",
+    "raw_unifi_syslog",
+    "ingest_batch",
+    "source_health",
+    "audit_log",
+)
 
 
 def _database_url() -> str:
@@ -105,3 +127,24 @@ async def migrated_engine(
         yield engine
     finally:
         await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(migrated_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """Request-scoped session on a clean slate of domain tables."""
+    factory = async_sessionmaker(
+        bind=migrated_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    async with factory() as session:
+        await session.execute(
+            text(
+                "TRUNCATE TABLE "
+                + ", ".join(_TRUNCATE_TABLES)
+                + " RESTART IDENTITY CASCADE"
+            )
+        )
+        await session.commit()
+        yield session
+        await session.rollback()

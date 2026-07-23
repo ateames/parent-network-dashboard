@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.health.source_health import get_source_health
@@ -40,17 +40,6 @@ def _fixture_path() -> Path:
         "pihole_sample.json not found; expected under /fixtures or repo fixtures/"
     )
 
-
-@pytest.fixture
-async def db_session(migrated_engine: AsyncEngine) -> AsyncSession:
-    factory = async_sessionmaker(
-        bind=migrated_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with factory() as session:
-        yield session
-        await session.rollback()
 
 
 @pytest.fixture
