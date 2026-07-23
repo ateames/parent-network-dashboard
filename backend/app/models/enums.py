@@ -43,3 +43,11 @@ class DnsQueryStatus(StrEnum):
     ALLOWED = "allowed"
     BLOCKED = "blocked"
     CACHED = "cached"
+
+
+class CorrelationStatus(StrEnum):
+    """Outcome of time-aware DNS → device correlation."""
+
+    ATTRIBUTED = "attributed"
+    AMBIGUOUS = "ambiguous"
+    UNATTRIBUTED = "unattributed"

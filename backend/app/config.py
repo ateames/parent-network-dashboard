@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # Device list "online" filter: last_seen within this many seconds.
     device_online_seconds: int = 300
 
+    # DNS → device correlation: attribute only at or above this confidence.
+    correlation_confidence_threshold: float = 0.70
+
 
 @lru_cache
 def get_settings() -> Settings:

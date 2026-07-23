@@ -1,8 +1,9 @@
 """SQLAlchemy ORM models for the Parent Network Dashboard schema."""
 
 from app.models.base import Base
-from app.models.dns import DnsQuery
+from app.models.dns import DnsActivity, DnsQuery
 from app.models.enums import (
+    CorrelationStatus,
     DnsQueryStatus,
     IdentifierKind,
     IngestBatchStatus,
@@ -24,8 +25,10 @@ from app.models.raw import (
 __all__ = [
     "AuditLog",
     "Base",
+    "CorrelationStatus",
     "Device",
     "DeviceIdentifier",
+    "DnsActivity",
     "DnsQuery",
     "DnsQueryStatus",
     "IdentifierKind",
@@ -53,6 +56,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "raw_unifi_event",
         "raw_unifi_syslog",
         "dns_query",
+        "dns_activity",
         "device",
         "device_identifier",
         "ip_assignment",
