@@ -1,0 +1,96 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+*.cover
+.cache/
+pytestdebug.log
+
+# Node / frontend
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+.pnpm-store/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.eslintcache
+coverage/
+
+# Docker / Compose data volumes (local persistence)
+data/
+postgres-data/
+pgdata/
+*.volume/
+docker-data/
+
+# Logs & runtime
+*.log
+logs/
+tmp/
+temp/
+.pid
+
+# Generated OpenAPI client / types (regenerate from backend)
+frontend/src/generated/
+backend/openapi.json
+
+# Test / local artifacts
+.coverage/
+coverage.xml
+.nyc_output/
