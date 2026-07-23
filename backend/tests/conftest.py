@@ -26,6 +26,7 @@ ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
 
 # Truncated before each DB test so commits in one test do not leak into another.
 _TRUNCATE_TABLES = (
+    "activity_baseline",
     "dns_activity",
     "ip_assignment",
     "device_identifier",
