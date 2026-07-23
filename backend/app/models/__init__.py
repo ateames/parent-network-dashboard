@@ -15,7 +15,9 @@ from app.models.enums import (
     IngestSource,
     PersonRole,
     SourceHealthStatus,
+    StreamEventKind,
 )
+from app.models.events import StreamEvent
 from app.models.findings import Finding, FindingFeedback, FindingSuppression
 from app.models.health import AuditLog, SourceHealth
 from app.models.identity import Device, DeviceIdentifier, IpAssignment
@@ -59,6 +61,8 @@ __all__ = [
     "RawUnifiSyslog",
     "SourceHealth",
     "SourceHealthStatus",
+    "StreamEvent",
+    "StreamEventKind",
 ]
 
 # Tables expected after Alembic migrations (public / test schema).
@@ -75,6 +79,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "finding",
         "finding_feedback",
         "finding_suppression",
+        "stream_event",
         "device",
         "device_identifier",
         "ip_assignment",

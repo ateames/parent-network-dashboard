@@ -9,7 +9,8 @@ import sys
 from sqlalchemy import text
 
 from app.config import settings
-from app.db import engine
+from app.db import AsyncSessionLocal, engine
+from app.findings.engine import evaluate_and_persist
 from app.ingest.pihole import run_poll_once as run_pihole_poll_once
 from app.ingest.unifi import run_poll_once as run_unifi_poll_once
 from app.ingest.unifi_syslog import run_syslog_listener, syslog_health_loop
@@ -22,6 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger("worker")
 
 HEARTBEAT_INTERVAL_SECONDS = 30
+FINDINGS_INTERVAL_SECONDS = 60
 
 
 async def connect_db() -> None:
@@ -76,6 +78,21 @@ async def unifi_poll_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def findings_loop() -> None:
+    """Evaluate meaningful findings and publish stream events."""
+    interval = FINDINGS_INTERVAL_SECONDS
+    logger.info("findings eval interval=%ss", interval)
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                drafts = await evaluate_and_persist(session)
+                await session.commit()
+            logger.info("findings evaluated count=%s", len(drafts))
+        except Exception:
+            logger.exception("findings evaluation failed")
+        await asyncio.sleep(interval)
+
+
 async def run() -> None:
     try:
         await connect_db()
@@ -83,6 +100,7 @@ async def run() -> None:
             heartbeat_loop(),
             pihole_poll_loop(),
             unifi_poll_loop(),
+            findings_loop(),
         ]
         if settings.unifi_syslog_enabled:
             tasks.append(run_syslog_listener())

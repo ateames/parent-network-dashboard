@@ -169,6 +169,31 @@ def _synthetic_unseen(source: IngestSource) -> SourceHealthReport:
     )
 
 
+async def _emit_source_down_if_needed(
+    session: AsyncSession,
+    row: SourceHealth,
+    previous_status: SourceHealthStatus,
+    *,
+    now: datetime,
+) -> None:
+    """Publish a live event when a previously-working source goes down."""
+    if row.status != SourceHealthStatus.DOWN:
+        return
+    if previous_status not in (
+        SourceHealthStatus.OK,
+        SourceHealthStatus.DEGRADED,
+    ):
+        return
+    from app.events.publish import publish_source_data_loss
+
+    await publish_source_data_loss(
+        session,
+        source=row.source.value,
+        detail=row.detail,
+        occurred_at=now,
+    )
+
+
 async def record_attempt(
     session: AsyncSession,
     source: IngestSource,
@@ -181,9 +206,11 @@ async def record_attempt(
     now = now or _utcnow()
     cfg = cfg or settings
     row = await _get_or_create(session, source, now=now)
+    previous = row.status
     row.last_attempt_at = now
     _apply_status(row, now=now, cfg=cfg, detail_override=detail)
     await session.flush()
+    await _emit_source_down_if_needed(session, row, previous, now=now)
     return row
 
 
@@ -219,10 +246,12 @@ async def record_failure(
     now = now or _utcnow()
     cfg = cfg or settings
     row = await _get_or_create(session, source, now=now)
+    previous = row.status
     row.last_attempt_at = now
     row.consecutive_failures += 1
     _apply_status(row, now=now, cfg=cfg, detail_override=detail)
     await session.flush()
+    await _emit_source_down_if_needed(session, row, previous, now=now)
     return row
 
 

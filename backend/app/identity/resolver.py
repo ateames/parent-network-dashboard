@@ -292,6 +292,7 @@ async def resolve_observation(
         first_seen, last_seen = last_seen, first_seen
 
     device = await _match_device(session, obs)
+    created = False
     if device is None:
         device = Device(
             logic_version=LOGIC_VERSION,
@@ -302,6 +303,7 @@ async def resolve_observation(
         )
         session.add(device)
         await session.flush()
+        created = True
     else:
         if first_seen < device.first_seen:
             device.first_seen = first_seen
@@ -375,6 +377,18 @@ async def resolve_observation(
     device.is_unknown = not await _device_has_strong_identifier(session, device.id)
     device.logic_version = LOGIC_VERSION
     await session.flush()
+
+    if created:
+        from app.events.publish import publish_new_device
+
+        await publish_new_device(
+            session,
+            device_id=device.id,
+            display_name=device.display_name,
+            is_unknown=device.is_unknown,
+            occurred_at=last_seen,
+        )
+
     return device
 
 

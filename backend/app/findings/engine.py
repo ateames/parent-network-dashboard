@@ -916,8 +916,14 @@ def draft_to_row(
     )
 
 
-async def upsert_finding(session: AsyncSession, draft: FindingDraft) -> Finding:
-    """Insert or refresh a finding for the same fingerprint + logic_version."""
+async def upsert_finding(
+    session: AsyncSession,
+    draft: FindingDraft,
+) -> tuple[Finding, bool]:
+    """Insert or refresh a finding for the same fingerprint + logic_version.
+
+    Returns ``(finding, created)`` where ``created`` is True on first insert.
+    """
     result = await session.execute(
         select(Finding).where(
             Finding.fingerprint == draft.fingerprint,
@@ -929,11 +935,11 @@ async def upsert_finding(session: AsyncSession, draft: FindingDraft) -> Finding:
         row = draft_to_row(draft)
         session.add(row)
         await session.flush()
-        return row
+        return row, True
 
     # Do not reopen dismissed/resolved findings on replay.
     if existing.status in (FindingStatus.DISMISSED, FindingStatus.RESOLVED):
-        return existing
+        return existing, False
 
     existing.severity = draft.severity
     existing.confidence = draft.confidence
@@ -949,7 +955,7 @@ async def upsert_finding(session: AsyncSession, draft: FindingDraft) -> Finding:
     existing.occurred_at = draft.occurred_at
     existing.detected_at = datetime.now(UTC)
     await session.flush()
-    return existing
+    return existing, False
 
 
 def _classify_transition_kind(
@@ -1415,7 +1421,11 @@ async def evaluate_and_persist(
     suppression_keys = await load_suppression_keys(session)
     drafts = filter_suppressed_drafts(drafts, suppression_keys)
     if persist:
+        from app.events.publish import publish_finding_created
+
         for draft in drafts:
-            await upsert_finding(session, draft)
+            row, created = await upsert_finding(session, draft)
+            if created:
+                await publish_finding_created(session, row)
         await session.flush()
     return drafts

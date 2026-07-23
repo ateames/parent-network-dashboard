@@ -78,7 +78,7 @@ async def _seed_unknown_device_finding(
         ],
         now=now,
     )
-    row = await upsert_finding(session, drafts[0])
+    row, _created = await upsert_finding(session, drafts[0])
     await session.commit()
     return row
 

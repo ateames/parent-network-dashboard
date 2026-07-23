@@ -90,3 +90,17 @@ class FindingFeedbackClassification(StrEnum):
     NEEDS_INVESTIGATION = "needs_investigation"
     ACKNOWLEDGE = "acknowledge"
     RESOLVE = "resolve"
+
+
+class StreamEventKind(StrEnum):
+    """Meaningful live-stream events (not every DNS request)."""
+
+    NEW_DEVICE_JOINED = "new_device_joined"
+    UNKNOWN_DEVICE_ONLINE = "unknown_device_online"
+    BLOCKED_QUERY_BURST = "blocked_query_burst"
+    DNS_VOLUME_INCREASE = "dns_volume_increase"
+    ACTIVITY_OUTSIDE_EXPECTED_HOURS = "activity_outside_expected_hours"
+    NEW_DOMAIN_BURST = "new_domain_burst"
+    CONNECTION_FLAPPING = "connection_flapping"
+    UNIFI_SECURITY_EVENT = "unifi_security_event"
+    SOURCE_DATA_LOSS = "source_data_loss"

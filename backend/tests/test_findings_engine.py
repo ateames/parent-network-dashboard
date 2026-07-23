@@ -701,10 +701,12 @@ async def test_upsert_does_not_reopen_dismissed(db_session: AsyncSession) -> Non
         ],
         now=now,
     )
-    row = await upsert_finding(db_session, drafts[0])
+    row, created = await upsert_finding(db_session, drafts[0])
+    assert created is True
     row.status = FindingStatus.DISMISSED
     await db_session.commit()
 
-    again = await upsert_finding(db_session, drafts[0])
+    again, created_again = await upsert_finding(db_session, drafts[0])
+    assert created_again is False
     assert again.id == row.id
     assert again.status == FindingStatus.DISMISSED

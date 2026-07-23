@@ -24,8 +24,18 @@ from alembic import command
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = BACKEND_ROOT / "alembic.ini"
 
+# Avoid the API lifespan poller hitting the default DB during tests.
+os.environ["STREAM_EVENT_POLL_ENABLED"] = "false"
+from app.config import get_settings  # noqa: E402
+
+get_settings.cache_clear()
+import app.config as _app_config  # noqa: E402
+
+_app_config.settings = get_settings()
+
 # Truncated before each DB test so commits in one test do not leak into another.
 _TRUNCATE_TABLES = (
+    "stream_event",
     "finding_feedback",
     "finding_suppression",
     "finding",

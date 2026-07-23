@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # DNS → device correlation: attribute only at or above this confidence.
     correlation_confidence_threshold: float = 0.70
 
+    # API process polls DB so worker-published stream events reach SSE clients.
+    stream_event_poll_enabled: bool = True
+    stream_event_poll_interval_seconds: float = 1.0
+
 
 @lru_cache
 def get_settings() -> Settings:
