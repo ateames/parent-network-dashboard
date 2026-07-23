@@ -1,4 +1,5 @@
 # arm64-friendly image for Raspberry Pi (and amd64 via multi-arch base).
+# Build context: repository root (see infra/docker-compose.yml).
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -13,13 +14,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
-COPY app ./app
-COPY worker.py ./
-COPY alembic.ini ./
-COPY alembic ./alembic
-COPY tests ./tests
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY backend/pyproject.toml backend/README.md ./
+COPY backend/app ./app
+COPY backend/worker.py ./
+COPY backend/alembic.ini ./
+COPY backend/alembic ./alembic
+COPY backend/tests ./tests
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
+COPY fixtures /fixtures
 
 RUN chmod +x /docker-entrypoint.sh \
     && pip install --upgrade pip \

@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     )
 
     pihole_url: str = "http://pihole.local"
+    # Auth: "none" | "password" (Pi-hole v6 SID session) | "token" (legacy auth= param).
+    pihole_auth_method: str = "password"
+    pihole_password: str = ""
+    pihole_token: str = ""
+    # Relative paths under pihole_url (custom proxies / API versions).
+    pihole_queries_path: str = "/api/queries"
+    pihole_auth_path: str = "/api/auth"
+    pihole_poll_interval_seconds: int = 60
+    pihole_query_length: int = 100
+    pihole_verify_tls: bool = False
+
     unifi_url: str = "https://unifi.local"
 
     admin_username: str = "admin"

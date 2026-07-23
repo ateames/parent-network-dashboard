@@ -35,3 +35,11 @@ class SourceHealthStatus(StrEnum):
     OK = "ok"
     DEGRADED = "degraded"
     DOWN = "down"
+
+
+class DnsQueryStatus(StrEnum):
+    """Normalized DNS outcome — never implies content was viewed."""
+
+    ALLOWED = "allowed"
+    BLOCKED = "blocked"
+    CACHED = "cached"

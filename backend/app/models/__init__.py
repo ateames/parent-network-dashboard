@@ -1,7 +1,9 @@
 """SQLAlchemy ORM models for the Parent Network Dashboard schema."""
 
 from app.models.base import Base
+from app.models.dns import DnsQuery
 from app.models.enums import (
+    DnsQueryStatus,
     IdentifierKind,
     IngestBatchStatus,
     IngestSource,
@@ -24,6 +26,8 @@ __all__ = [
     "Base",
     "Device",
     "DeviceIdentifier",
+    "DnsQuery",
+    "DnsQueryStatus",
     "IdentifierKind",
     "IngestBatch",
     "IngestBatchStatus",
@@ -40,7 +44,7 @@ __all__ = [
     "SourceHealthStatus",
 ]
 
-# Tables expected after the initial Alembic migration (public schema).
+# Tables expected after Alembic migrations (public / test schema).
 EXPECTED_TABLES: frozenset[str] = frozenset(
     {
         "ingest_batch",
@@ -48,6 +52,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "raw_unifi_client",
         "raw_unifi_event",
         "raw_unifi_syslog",
+        "dns_query",
         "device",
         "device_identifier",
         "ip_assignment",

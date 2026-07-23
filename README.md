@@ -4,7 +4,7 @@ A locally hosted family network visibility platform that ingests **read-only** d
 
 ## Status
 
-Backend API + worker, Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place. Ingestion is not yet implemented.
+Backend API + worker (Pi-hole read-only ingest), Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place. UniFi ingestion is not yet implemented.
 
 ## Quick start
 
@@ -59,5 +59,6 @@ Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS
 
 ## Next steps
 
-1. Drop fixture payloads into `fixtures/` and wire offline ingestion tests
-2. Build out dashboard pages (Overview, Live, People, Devices, Findings, Review)
+1. Point `PIHOLE_*` env at your LAN Pi-hole (or use `python -m app.ingest.pihole --replay fixtures/pihole_sample.json`)
+2. Build out UniFi read-only ingestion
+3. Build out dashboard pages (Overview, Live, People, Devices, Findings, Review)

@@ -1,4 +1,4 @@
-"""Worker process entrypoint — heartbeat loop; no ingestion yet."""
+"""Worker process — heartbeat + scheduled Pi-hole ingestion."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ import sys
 
 from sqlalchemy import text
 
+from app.config import settings
 from app.db import engine
+from app.ingest.pihole import run_poll_once
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,12 +29,37 @@ async def connect_db() -> None:
     logger.info("database connection ok")
 
 
+async def heartbeat_loop() -> None:
+    while True:
+        logger.info("worker alive")
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+
+async def pihole_poll_loop() -> None:
+    """Poll Pi-hole on a configurable interval; advance `since` after success."""
+    since: float | None = None
+    interval = max(5, settings.pihole_poll_interval_seconds)
+    logger.info("pihole poll interval=%ss", interval)
+    while True:
+        try:
+            batch = await run_poll_once(since=since)
+            logger.info(
+                "pihole ingest batch=%s records=%s status=%s",
+                batch.id,
+                batch.record_count,
+                batch.status.value,
+            )
+            # Next poll asks for queries after this run started (unix seconds).
+            since = batch.started_at.timestamp()
+        except Exception:
+            logger.exception("pihole ingest failed")
+        await asyncio.sleep(interval)
+
+
 async def run() -> None:
     try:
         await connect_db()
-        while True:
-            logger.info("worker alive")
-            await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        await asyncio.gather(heartbeat_loop(), pihole_poll_loop())
     finally:
         await engine.dispose()
 

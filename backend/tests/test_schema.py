@@ -44,6 +44,7 @@ async def test_derived_tables_have_logic_version(
         "ip_assignment",
         "person",
         "person_device",
+        "dns_query",
     }
     async with migrated_engine.connect() as conn:
         for table in sorted(derived):
