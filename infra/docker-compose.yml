@@ -59,6 +59,7 @@ services:
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       APP_VERSION: ${APP_VERSION:-0.1.0}
       BUILD_ID: ${BUILD_ID:-local}
+      SKIP_MIGRATE: "1"
     depends_on:
       db:
         condition: service_healthy

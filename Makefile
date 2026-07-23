@@ -6,7 +6,7 @@
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file infra/.env
 BACKEND  := backend
 
-.PHONY: up down logs test
+.PHONY: up down logs test migrate
 
 ## Build and start db, api, and worker in the background
 up:
@@ -21,7 +21,12 @@ down:
 logs:
 	$(COMPOSE) logs -f
 
-## Run backend pytest (inside a one-off api container)
+## Apply Alembic migrations (alembic upgrade head) against the Compose db
+migrate:
+	@test -f infra/.env || (echo "Missing infra/.env — copy from infra/.env.example" && exit 1)
+	$(COMPOSE) run --rm --entrypoint alembic api upgrade head
+
+## Run backend pytest (inside a one-off api container; starts db)
 test:
 	@test -f infra/.env || (echo "Missing infra/.env — copy from infra/.env.example" && exit 1)
-	$(COMPOSE) run --rm --no-deps --entrypoint pytest api -q
+	$(COMPOSE) run --rm --build --entrypoint pytest api -q

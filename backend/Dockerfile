@@ -16,11 +16,15 @@ RUN apt-get update \
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY worker.py ./
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY tests ./tests
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN pip install --upgrade pip \
+RUN chmod +x /docker-entrypoint.sh \
+    && pip install --upgrade pip \
     && pip install ".[dev]"
 
-# Default: API. Compose overrides command for the worker.
 EXPOSE 8000
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
