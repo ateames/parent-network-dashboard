@@ -31,6 +31,21 @@ class Settings(BaseSettings):
     pihole_verify_tls: bool = False
 
     unifi_url: str = "https://unifi.local"
+    # Auth: "session" (username/password cookie login) | "token" (API key / bearer).
+    unifi_auth_method: str = "session"
+    unifi_username: str = ""
+    unifi_password: str = ""
+    unifi_token: str = ""
+    unifi_site: str = "default"
+    # Relative paths under unifi_url; `{site}` is substituted from unifi_site.
+    unifi_login_path: str = "/api/login"
+    unifi_clients_path: str = "/api/s/{site}/stat/sta"
+    unifi_devices_path: str = "/api/s/{site}/stat/device"
+    unifi_networks_path: str = "/api/s/{site}/rest/networkconf"
+    unifi_events_path: str = "/api/s/{site}/stat/event"
+    unifi_poll_interval_seconds: int = 60
+    unifi_events_limit: int = 100
+    unifi_verify_tls: bool = False
 
     admin_username: str = "admin"
     admin_password: str = "changeme"

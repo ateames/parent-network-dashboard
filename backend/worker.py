@@ -1,4 +1,4 @@
-"""Worker process — heartbeat + scheduled Pi-hole ingestion."""
+"""Worker process — heartbeat + scheduled Pi-hole / UniFi ingestion."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
-from app.ingest.pihole import run_poll_once
+from app.ingest.pihole import run_poll_once as run_pihole_poll_once
+from app.ingest.unifi import run_poll_once as run_unifi_poll_once
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +43,7 @@ async def pihole_poll_loop() -> None:
     logger.info("pihole poll interval=%ss", interval)
     while True:
         try:
-            batch = await run_poll_once(since=since)
+            batch = await run_pihole_poll_once(since=since)
             logger.info(
                 "pihole ingest batch=%s records=%s status=%s",
                 batch.id,
@@ -56,10 +57,32 @@ async def pihole_poll_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def unifi_poll_loop() -> None:
+    """Poll UniFi on a configurable interval (read-only clients + events)."""
+    interval = max(5, settings.unifi_poll_interval_seconds)
+    logger.info("unifi poll interval=%ss", interval)
+    while True:
+        try:
+            batch = await run_unifi_poll_once()
+            logger.info(
+                "unifi ingest batch=%s records=%s status=%s",
+                batch.id,
+                batch.record_count,
+                batch.status.value,
+            )
+        except Exception:
+            logger.exception("unifi ingest failed")
+        await asyncio.sleep(interval)
+
+
 async def run() -> None:
     try:
         await connect_db()
-        await asyncio.gather(heartbeat_loop(), pihole_poll_loop())
+        await asyncio.gather(
+            heartbeat_loop(),
+            pihole_poll_loop(),
+            unifi_poll_loop(),
+        )
     finally:
         await engine.dispose()
 

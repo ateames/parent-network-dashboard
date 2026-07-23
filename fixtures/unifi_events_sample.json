@@ -1,0 +1,25 @@
+{
+  "meta": {"rc": "ok"},
+  "data": [
+    {
+      "_id": "evt1001",
+      "key": "EVT_WU_Connected",
+      "time": 1721740790,
+      "datetime": "2024-07-23T12:00:00Z",
+      "msg": "User[aa:bb:cc:dd:ee:01] has connected to HomeWifi",
+      "mac": "aa:bb:cc:dd:ee:01",
+      "ssid": "HomeWifi",
+      "ap": "11:22:33:44:55:66"
+    },
+    {
+      "_id": "evt1002",
+      "key": "EVT_LU_Connected",
+      "time": 1721740805,
+      "datetime": "2024-07-23T12:00:15Z",
+      "msg": "User[aa:bb:cc:dd:ee:02] has connected to LAN",
+      "mac": "aa:bb:cc:dd:ee:02",
+      "network": "LAN",
+      "sw": "11:22:33:44:55:77"
+    }
+  ]
+}
