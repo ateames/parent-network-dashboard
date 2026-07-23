@@ -8,13 +8,11 @@ import sys
 from fastapi import FastAPI
 
 from app import __version__ as package_version
-from app.api.devices import router as devices_router
 from app.api.sources import router as sources_router
 from app.config import settings
 
 app = FastAPI(title="Parent Network Dashboard API", version=settings.app_version)
 app.include_router(sources_router)
-app.include_router(devices_router)
 
 
 @app.get("/health")

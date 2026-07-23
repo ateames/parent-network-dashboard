@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.health.source_health import get_source_health
-from app.identity.resolver import LOGIC_VERSION
 from app.ingest.unifi import (
+    LOGIC_VERSION,
     NormalizedClient,
     normalize_client,
     normalize_mac,
@@ -140,75 +140,42 @@ async def test_replay_fixture_creates_raw_normalized_ip_and_health(
     assert len(raw_events) == 2
     assert {r.payload["_id"] for r in raw_events} == {"evt1001", "evt1002"}
 
-    fixture_macs = {
+    devices = list((await db_session.execute(select(Device))).scalars().all())
+    assert len(devices) == 3
+    assert all(d.logic_version == LOGIC_VERSION for d in devices)
+
+    identifiers = list(
+        (await db_session.execute(select(DeviceIdentifier))).scalars().all()
+    )
+    kinds = {i.kind for i in identifiers}
+    assert IdentifierKind.MAC in kinds
+    assert IdentifierKind.UNIFI_CLIENT_ID in kinds
+    assert IdentifierKind.HOSTNAME in kinds
+    # Durable identity must never be keyed on IP.
+    assert IdentifierKind.IP not in kinds
+
+    mac_values = {i.value for i in identifiers if i.kind == IdentifierKind.MAC}
+    assert mac_values == {
         "aa:bb:cc:dd:ee:01",
         "aa:bb:cc:dd:ee:02",
         "aa:bb:cc:dd:ee:03",
     }
-    identifiers = list(
-        (
-            await db_session.execute(
-                select(DeviceIdentifier).where(
-                    DeviceIdentifier.kind == IdentifierKind.MAC,
-                    DeviceIdentifier.value.in_(fixture_macs),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    mac_to_device = {i.value: i.device_id for i in identifiers}
-    assert set(mac_to_device) == fixture_macs
-    assert len(set(mac_to_device.values())) == 3
-
-    devices = list(
-        (
-            await db_session.execute(
-                select(Device).where(Device.id.in_(set(mac_to_device.values())))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    assert all(d.logic_version == LOGIC_VERSION for d in devices)
-    assert all(d.is_unknown is False for d in devices)
-
-    all_identifiers = list(
-        (
-            await db_session.execute(
-                select(DeviceIdentifier).where(
-                    DeviceIdentifier.device_id.in_(set(mac_to_device.values()))
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    kinds = {i.kind for i in all_identifiers}
-    assert IdentifierKind.MAC in kinds
-    assert IdentifierKind.UNIFI_CLIENT_ID in kinds
-    assert IdentifierKind.HOSTNAME in kinds
-    # IP may be recorded as an identifier, but matching never uses it alone.
-    assert IdentifierKind.IP in kinds
 
     # Same IP on two MACs → two devices (identity is MAC, not IP).
+    mac_to_device = {
+        i.value: i.device_id
+        for i in identifiers
+        if i.kind == IdentifierKind.MAC
+    }
     assert mac_to_device["aa:bb:cc:dd:ee:01"] != mac_to_device["aa:bb:cc:dd:ee:03"]
 
     assignments = list(
-        (
-            await db_session.execute(
-                select(IpAssignment).where(
-                    IpAssignment.device_id.in_(set(mac_to_device.values())),
-                    IpAssignment.observed_to.is_(None),
-                )
-            )
-        )
-        .scalars()
-        .all()
+        (await db_session.execute(select(IpAssignment))).scalars().all()
     )
     assert len(assignments) == 3
     assert all(a.source == "unifi_api" for a in assignments)
     assert all(a.logic_version == LOGIC_VERSION for a in assignments)
+    assert all(a.observed_to is None for a in assignments)
     ips_by_device = {a.device_id: a.ip for a in assignments}
     assert ips_by_device[mac_to_device["aa:bb:cc:dd:ee:01"]] == "192.168.1.50"
     assert ips_by_device[mac_to_device["aa:bb:cc:dd:ee:02"]] == "192.168.1.20"
