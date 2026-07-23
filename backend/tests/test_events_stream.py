@@ -1,4 +1,4 @@
-"""Live event bus, SSE delivery, and recent backfill ordering."""
+"""Live event bus, SSE framing, and recent backfill ordering."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.api.events import _sse_frame
 from app.db import get_session
 from app.events.bus import get_event_bus, reset_event_bus
 from app.events.publish import publish_stream_event
@@ -47,70 +48,62 @@ async def api_client(
     app.dependency_overrides.pop(get_session, None)
 
 
-def _parse_sse_data_lines(chunk: str) -> list[dict]:
-    events: list[dict] = []
-    data_lines: list[str] = []
-    for line in chunk.splitlines():
-        if line.startswith("data:"):
-            data_lines.append(line[5:].lstrip())
-        elif line == "" and data_lines:
-            payload = "\n".join(data_lines)
-            events.append(json.loads(payload))
-            data_lines = []
-    if data_lines:
-        events.append(json.loads("\n".join(data_lines)))
-    return events
-
-
 @pytest.mark.asyncio
-async def test_publish_delivers_to_sse_client(
-    api_client: AsyncClient,
+async def test_publish_delivers_to_bus_subscriber(
     db_session: AsyncSession,
 ) -> None:
-    """Publishing an event delivers it to an attached SSE client."""
-    received: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+    """Publishing an event fans out to an attached in-process bus subscriber.
 
-    async def _reader() -> None:
-        async with api_client.stream("GET", "/api/events/stream") as response:
-            assert response.status_code == 200
-            assert "text/event-stream" in response.headers["content-type"]
-            buffer = ""
-            async for text in response.aiter_text():
-                buffer += text
-                for event in _parse_sse_data_lines(buffer):
-                    if not received.done():
-                        received.set_result(event)
-                    return
-
-    reader = asyncio.create_task(_reader())
+    httpx ASGITransport buffers until the response ends, so open SSE streams
+    cannot be asserted over ASGITransport; cover fan-out here and framing below.
+    """
     bus = get_event_bus()
-    for _ in range(100):
-        if bus.subscriber_count > 0:
-            break
-        await asyncio.sleep(0.01)
-    else:
-        reader.cancel()
-        pytest.fail("SSE client did not subscribe in time")
+    queue = bus.subscribe()
+    try:
+        published = await publish_stream_event(
+            db_session,
+            kind=StreamEventKind.BLOCKED_QUERY_BURST,
+            severity=FindingSeverity.MEDIUM,
+            summary="Several blocked DNS lookups attributed to Alex in 15 minutes.",
+            occurred_at=datetime(2024, 7, 23, 12, 0, tzinfo=UTC),
+        )
+        await db_session.commit()
 
-    published = await publish_stream_event(
-        db_session,
+        event = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert event.id == published.id
+        assert event.kind == StreamEventKind.BLOCKED_QUERY_BURST
+        assert event.severity == FindingSeverity.MEDIUM
+        assert "blocked DNS lookups" in event.summary
+        assert event.finding_id is None
+    finally:
+        bus.unsubscribe(queue)
+
+
+def test_sse_frame_encodes_stream_event() -> None:
+    """SSE frames carry id/event/data suitable for EventSource clients."""
+    now = datetime(2024, 7, 23, 12, 0, tzinfo=UTC)
+    event = StreamEventOut(
+        id=uuid4(),
+        logic_version="stream_events.v1",
         kind=StreamEventKind.BLOCKED_QUERY_BURST,
         severity=FindingSeverity.MEDIUM,
         summary="Several blocked DNS lookups attributed to Alex in 15 minutes.",
-        occurred_at=datetime(2024, 7, 23, 12, 0, tzinfo=UTC),
+        occurred_at=now,
+        created_at=now,
+        finding_id=None,
     )
-    await db_session.commit()
+    frame = _sse_frame(event)
+    assert frame.startswith(f"id: {event.id}\n")
+    assert "event: stream\n" in frame
+    assert frame.endswith("\n\n")
 
-    event = await asyncio.wait_for(received, timeout=2.0)
-    assert event["id"] == str(published.id)
-    assert event["kind"] == StreamEventKind.BLOCKED_QUERY_BURST.value
-    assert event["severity"] == FindingSeverity.MEDIUM.value
-    assert "blocked DNS lookups" in event["summary"]
-    assert event["finding_id"] is None
-
-    reader.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await reader
+    data_line = next(line for line in frame.splitlines() if line.startswith("data:"))
+    payload = json.loads(data_line.removeprefix("data:").lstrip())
+    assert payload["id"] == str(event.id)
+    assert payload["kind"] == StreamEventKind.BLOCKED_QUERY_BURST.value
+    assert payload["severity"] == FindingSeverity.MEDIUM.value
+    assert "blocked DNS lookups" in payload["summary"]
+    assert payload["finding_id"] is None
 
 
 @pytest.mark.asyncio
