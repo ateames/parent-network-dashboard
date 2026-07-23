@@ -88,7 +88,7 @@ class RecentActivityOut(BaseModel):
 
 
 class FindingsBySeverityOut(BaseModel):
-    """Placeholder until findings land — always empty-safe zeros."""
+    """Open finding counts by severity (critical reserved; MVP uses high..info)."""
 
     critical: int = 0
     high: int = 0

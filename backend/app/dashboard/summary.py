@@ -30,10 +30,13 @@ from app.models.dns import DnsActivity, DnsQuery
 from app.models.enums import (
     CorrelationStatus,
     DnsQueryStatus,
+    FindingSeverity,
+    FindingStatus,
     IngestSource,
     PersonRole,
     SourceHealthStatus,
 )
+from app.models.findings import Finding
 from app.models.identity import Device
 from app.models.people import Person, PersonDevice
 from app.schemas.dashboard import (
@@ -280,6 +283,23 @@ async def _count_review_items(session: AsyncSession) -> int:
         .where(DnsActivity.needs_review.is_(True))
     )
     return int(result.scalar_one())
+
+
+async def _findings_by_severity(session: AsyncSession) -> FindingsBySeverityOut:
+    """Count open findings by severity (critical reserved / unused for now)."""
+    result = await session.execute(
+        select(Finding.severity, func.count())
+        .where(Finding.status == FindingStatus.OPEN)
+        .group_by(Finding.severity)
+    )
+    counts = {severity: int(n) for severity, n in result.all()}
+    return FindingsBySeverityOut(
+        critical=0,
+        high=counts.get(FindingSeverity.HIGH, 0),
+        medium=counts.get(FindingSeverity.MEDIUM, 0),
+        low=counts.get(FindingSeverity.LOW, 0),
+        info=counts.get(FindingSeverity.INFO, 0),
+    )
 
 
 async def _load_recent_dns_activity(
@@ -738,7 +758,7 @@ async def build_dashboard_summary(
         online_devices=online_devices,
         unknown_unassigned=unknown_unassigned,
         recent_activity=recent_activity,
-        findings_by_severity=FindingsBySeverityOut(),
+        findings_by_severity=await _findings_by_severity(session),
         trends=TrendsOut(
             window=TREND_WINDOW,
             incomplete=bool(incomplete_reasons),

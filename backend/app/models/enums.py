@@ -51,3 +51,29 @@ class CorrelationStatus(StrEnum):
     ATTRIBUTED = "attributed"
     AMBIGUOUS = "ambiguous"
     UNATTRIBUTED = "unattributed"
+
+
+class FindingSeverity(StrEnum):
+    """Parent-facing severity for explainable findings."""
+
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class FindingStatus(StrEnum):
+    """Lifecycle of a persisted finding."""
+
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    DISMISSED = "dismissed"
+
+
+class FindingConfidence(StrEnum):
+    """How confident the deterministic rule is in the finding."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
