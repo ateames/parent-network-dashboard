@@ -412,8 +412,17 @@ async def correlate_window(
     return rows
 
 
+def _has_manual_resolution(activity: DnsActivity) -> bool:
+    evidence = activity.evidence or {}
+    return isinstance(evidence.get("manual_resolution"), dict)
+
+
 async def _upsert_activity(session: AsyncSession, row: DnsActivity) -> None:
-    """Replace prior row for same query + logic_version (replay-safe)."""
+    """Replace prior row for same query + logic_version (replay-safe).
+
+    Parent-resolved rows keep their decision; correlation replay must not
+    overwrite a manual resolution or rewrite raw source data.
+    """
     result = await session.execute(
         select(DnsActivity).where(
             DnsActivity.dns_query_id == row.dns_query_id,
@@ -423,6 +432,8 @@ async def _upsert_activity(session: AsyncSession, row: DnsActivity) -> None:
     existing = result.scalars().first()
     if existing is None:
         session.add(row)
+        return
+    if _has_manual_resolution(existing):
         return
     existing.device_id = row.device_id
     existing.queried_at = row.queried_at

@@ -43,6 +43,8 @@ _CONFIDENCE_UNIFI_ID = Decimal("1.0000")
 _CONFIDENCE_HOSTNAME = Decimal("0.5000")
 _CONFIDENCE_PIHOLE_CLIENT = Decimal("0.5000")
 _CONFIDENCE_IP = Decimal("0.1000")
+# Parent-confirmed weak identifiers beat auto-observed ones; still below MAC/id.
+_CONFIDENCE_CONFIRMED_CLIENT = Decimal("0.9000")
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +211,74 @@ async def _update_ip_assignment(
             source=source,
         )
     )
+
+
+async def confirm_device_identifier(
+    session: AsyncSession,
+    device: Device,
+    *,
+    kind: IdentifierKind,
+    value: str,
+    observed_at: datetime,
+) -> None:
+    """Add or confirm a durable identifier binding for future correlation.
+
+    Parent confirmation may reassign *weak* identifiers (hostname /
+    pihole_client / ip) when evidence previously pointed elsewhere. Strong
+    identifiers (MAC / UniFi client id) are never stolen. Never touches raw
+    ingest tables or historical payloads.
+    """
+    cleaned = value.strip()
+    if not cleaned:
+        return
+    if kind in STRONG_IDENTIFIER_KINDS:
+        confidence = (
+            _CONFIDENCE_MAC if kind == IdentifierKind.MAC else _CONFIDENCE_UNIFI_ID
+        )
+    elif kind in (IdentifierKind.PIHOLE_CLIENT, IdentifierKind.HOSTNAME):
+        confidence = _CONFIDENCE_CONFIRMED_CLIENT
+    else:
+        confidence = _CONFIDENCE_IP
+
+    result = await session.execute(
+        select(DeviceIdentifier).where(
+            DeviceIdentifier.kind == kind,
+            DeviceIdentifier.value == cleaned,
+        )
+    )
+    existing = result.scalars().first()
+    if existing is not None and existing.device_id != device.id:
+        if kind in STRONG_IDENTIFIER_KINDS:
+            logger.warning(
+                "confirm refused strong identifier conflict kind=%s value=%s "
+                "existing_device=%s confirmed_device=%s",
+                kind.value,
+                cleaned,
+                existing.device_id,
+                device.id,
+            )
+            return
+        # Parent resolution is authoritative for weak client-name bindings.
+        existing.device_id = device.id
+        existing.confidence = confidence
+        existing.logic_version = LOGIC_VERSION
+        if observed_at < existing.first_seen:
+            existing.first_seen = observed_at
+        if observed_at > existing.last_seen:
+            existing.last_seen = observed_at
+        await session.flush()
+        return
+
+    await _upsert_identifier(
+        session,
+        device,
+        kind=kind,
+        value=cleaned,
+        confidence=confidence,
+        first_seen=observed_at,
+        last_seen=observed_at,
+    )
+    await session.flush()
 
 
 async def resolve_observation(
