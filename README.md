@@ -4,7 +4,7 @@ A locally hosted family network visibility platform that ingests **read-only** d
 
 ## Status
 
-Backend API + worker (Pi-hole + UniFi read-only ingest), Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place.
+Backend API + worker (Pi-hole + UniFi API ingest + UniFi syslog listener), Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place.
 
 ## Quick start
 
@@ -67,4 +67,7 @@ Offline replay examples:
 ```bash
 python -m app.ingest.pihole --replay fixtures/pihole_sample.json
 python -m app.ingest.unifi --replay fixtures
+python -m app.ingest.unifi_syslog --replay fixtures/unifi_syslog_sample.log
 ```
+
+Point the UniFi controller’s syslog at this Pi (read-only, one-way): see [`docs/unifi-syslog.md`](docs/unifi-syslog.md).

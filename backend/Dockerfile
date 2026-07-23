@@ -27,6 +27,6 @@ RUN chmod +x /docker-entrypoint.sh \
     && pip install --upgrade pip \
     && pip install ".[dev]"
 
-EXPOSE 8000
+EXPOSE 8000 5514/udp 5514/tcp
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

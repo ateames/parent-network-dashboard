@@ -1,4 +1,4 @@
-"""Worker process — heartbeat + scheduled Pi-hole / UniFi ingestion."""
+"""Worker process — heartbeat + scheduled Pi-hole / UniFi ingestion + syslog."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from app.config import settings
 from app.db import engine
 from app.ingest.pihole import run_poll_once as run_pihole_poll_once
 from app.ingest.unifi import run_poll_once as run_unifi_poll_once
+from app.ingest.unifi_syslog import run_syslog_listener, syslog_health_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,11 +79,17 @@ async def unifi_poll_loop() -> None:
 async def run() -> None:
     try:
         await connect_db()
-        await asyncio.gather(
+        tasks = [
             heartbeat_loop(),
             pihole_poll_loop(),
             unifi_poll_loop(),
-        )
+        ]
+        if settings.unifi_syslog_enabled:
+            tasks.append(run_syslog_listener())
+            tasks.append(syslog_health_loop())
+        else:
+            logger.info("unifi syslog listener disabled via UNIFI_SYSLOG_ENABLED")
+        await asyncio.gather(*tasks)
     finally:
         await engine.dispose()
 

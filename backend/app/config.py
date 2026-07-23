@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     unifi_events_limit: int = 100
     unifi_verify_tls: bool = False
 
+    # UniFi syslog listener (read-only; controller pushes lines to this host).
+    unifi_syslog_enabled: bool = True
+    unifi_syslog_host: str = "0.0.0.0"
+    unifi_syslog_port: int = 5514
+    # Comma-separated: "udp", "tcp", or "udp,tcp".
+    unifi_syslog_protocols: str = "udp,tcp"
+    # No lines within this window => source_health degraded for unifi_syslog.
+    unifi_syslog_stale_seconds: int = 300
+    # How often the worker refreshes unifi_syslog staleness.
+    unifi_syslog_health_check_seconds: int = 60
+
     admin_username: str = "admin"
     admin_password: str = "changeme"
     admin_token: str = "changeme"
