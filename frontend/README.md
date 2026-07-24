@@ -44,6 +44,14 @@ make openapi
 
 Docker frontend builds regenerate these in-image. Locally, run `make openapi` after backend schema changes.
 
+## Local authentication
+
+The UI requires a local admin login (`/login`). Session cookies are signed with
+`DASHBOARD_SESSION_SECRET`. The proxy still attaches `ADMIN_TOKEN` server-side
+when calling the API — the browser never sees that token.
+
+See [`docs/local-auth.md`](../docs/local-auth.md).
+
 ## Local development
 
 ```bash
@@ -51,12 +59,16 @@ cp ../infra/.env.example ../infra/.env   # if needed
 # From frontend/:
 export BACKEND_URL=http://localhost:8000
 export ADMIN_TOKEN=changeme              # must match infra/.env
+export DASHBOARD_USERNAME=admin
+export DASHBOARD_PASSWORD=changeme
+export DASHBOARD_SESSION_SECRET=dev-session-secret
 npm install
 make -C .. openapi   # or: npm run generate:api after exporting schema
 npm run dev
 ```
 
-Open http://localhost:3000 — Health page should turn green when the API is up.
+Open http://localhost:3000/login — after signing in, Source Health / System Health
+should load through `/api/proxy/*`.
 
 ## Docker (production)
 
@@ -75,5 +87,8 @@ make up
 |----------|---------|
 | `BACKEND_URL` | Upstream FastAPI base URL (e.g. `http://api:8000`) |
 | `ADMIN_TOKEN` | Bearer token injected by the proxy (same as API) |
+| `DASHBOARD_USERNAME` | Local UI login username |
+| `DASHBOARD_PASSWORD` | Local UI login password |
+| `DASHBOARD_SESSION_SECRET` | HMAC secret for the httpOnly session cookie |
 
-These are read only inside the Next.js server / route handlers.
+These are read only inside the Next.js server / middleware / route handlers.

@@ -9,15 +9,17 @@ Backend API + worker (Pi-hole + UniFi API ingest + UniFi syslog listener), Next.
 ## Quick start
 
 ```bash
-cp infra/.env.example infra/.env
+cp infra/.env.example infra/.env   # set ADMIN_* / DASHBOARD_* secrets
 make up          # db + api + worker + frontend (api runs alembic upgrade head on start)
 curl localhost:8000/health
-open http://localhost:3000/health   # green when proxy → API works
+open http://localhost:3000/login    # local admin login, then dashboard
 make migrate     # apply migrations manually (optional; also runs on api start)
 make logs        # follow all service logs
 make test        # backend pytest
 make down        # stop containers (volume kept)
 ```
+
+Local UI auth setup: [`docs/local-auth.md`](docs/local-auth.md).
 
 | Target | What it does |
 |--------|----------------|
@@ -28,7 +30,7 @@ make down        # stop containers (volume kept)
 | `make test` | Run backend pytest in a one-off api container (starts `db`) |
 | `make openapi` | Export OpenAPI schema and regenerate frontend TypeScript types |
 
-API listens on port **8000** (`GET /health`, `GET /version`). Dashboard listens on port **3000** (browser calls `/api/proxy/*` only).
+API listens on port **8000** (`GET /health`, `GET /version`, `GET /api/sources/health`, `GET /api/system/health`). Dashboard listens on port **3000** (browser calls `/api/proxy/*` and `/api/auth/*` only; UI gated by local login).
 
 ## Repository layout
 
@@ -61,7 +63,7 @@ Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS
 ## Next steps
 
 1. Point `PIHOLE_*` / `UNIFI_*` env at your LAN hosts (or replay fixtures offline)
-2. Build out dashboard pages (Overview, Live, People, Devices, Findings, Review)
+2. Set strong `ADMIN_*` / `DASHBOARD_*` secrets before LAN exposure
 
 Offline replay examples:
 

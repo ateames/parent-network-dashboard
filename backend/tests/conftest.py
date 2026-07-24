@@ -44,6 +44,7 @@ _TRUNCATE_TABLES = (
     "ip_assignment",
     "device_identifier",
     "person_device",
+    "expected_activity_schedule",
     "person",
     "device",
     "dns_query",
@@ -53,6 +54,8 @@ _TRUNCATE_TABLES = (
     "raw_unifi_syslog",
     "ingest_batch",
     "source_health",
+    "app_thresholds",
+    "worker_heartbeat",
     "audit_log",
 )
 

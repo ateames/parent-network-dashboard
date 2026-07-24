@@ -265,7 +265,7 @@ async def get_source_health(
 ) -> SourceHealthReport:
     """Return current health for one source (synthetic down if never seen)."""
     now = now or _utcnow()
-    cfg = cfg or settings
+    cfg = await _cfg_with_db_thresholds(session, cfg)
     row = await _get_row(session, source)
     if row is None:
         return _synthetic_unseen(source)
@@ -273,6 +273,27 @@ async def get_source_health(
         _apply_status(row, now=now, cfg=cfg, preserve_detail=True)
         await session.flush()
     return _to_report(row, now=now)
+
+
+async def _cfg_with_db_thresholds(
+    session: AsyncSession,
+    cfg: Settings | None,
+) -> Settings:
+    """Merge persisted local thresholds into runtime Settings."""
+    from app.settings_store import load_thresholds
+
+    base = cfg or settings
+    thresholds = await load_thresholds(session, cfg=base)
+    return base.model_copy(
+        update={
+            "source_health_stale_seconds": int(
+                thresholds["source_health_stale_seconds"]
+            ),
+            "source_health_max_failures": int(
+                thresholds["source_health_max_failures"]
+            ),
+        }
+    )
 
 
 async def list_source_health(
@@ -284,7 +305,7 @@ async def list_source_health(
 ) -> list[SourceHealthReport]:
     """Return health for every known ingest source."""
     now = now or _utcnow()
-    cfg = cfg or settings
+    cfg = await _cfg_with_db_thresholds(session, cfg)
     result = await session.execute(select(SourceHealth))
     rows = {row.source: row for row in result.scalars().all()}
 

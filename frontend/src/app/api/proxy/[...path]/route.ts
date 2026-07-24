@@ -1,4 +1,7 @@
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +58,15 @@ async function proxyRequest(
   context: { params: Promise<{ path: string[] }> },
 ): Promise<NextResponse> {
   try {
+    const jar = await cookies();
+    const session = await verifySessionToken(jar.get(SESSION_COOKIE)?.value);
+    if (!session) {
+      return NextResponse.json(
+        { detail: "Authentication required" },
+        { status: 401 },
+      );
+    }
+
     const { path } = await context.params;
     if (!path?.length) {
       return NextResponse.json(

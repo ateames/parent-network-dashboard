@@ -17,8 +17,10 @@ from app.api.devices import router as devices_router
 from app.api.events import router as events_router
 from app.api.findings import router as findings_router
 from app.api.people import router as people_router
+from app.api.settings import router as settings_router
 from app.api.sources import router as sources_router
 from app.api.suppressions import router as suppressions_router
+from app.api.system import router as system_router
 from app.config import settings
 from app.events.poller import stream_event_poll_loop
 
@@ -48,6 +50,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(sources_router)
+app.include_router(system_router)
+app.include_router(settings_router)
 app.include_router(devices_router)
 app.include_router(people_router)
 app.include_router(correlation_router)

@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/pages/placeholder-page";
+import { SettingsPage } from "@/components/settings/settings-page";
 
-export default function SettingsPage() {
-  return (
-    <PlaceholderPage
-      title="Settings"
-      description="Local configuration and credentials (server-side) will appear here."
-    />
-  );
+export default function SettingsRoute() {
+  return <SettingsPage />;
 }

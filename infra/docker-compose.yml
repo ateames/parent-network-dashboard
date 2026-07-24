@@ -134,6 +134,10 @@ services:
       # SERVER-ONLY — used by /api/proxy route handlers; never NEXT_PUBLIC_*
       BACKEND_URL: ${BACKEND_URL:-http://api:8000}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      # UI login gate (cookie session). ADMIN_TOKEN stays in the proxy only.
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-changeme}
+      DASHBOARD_SESSION_SECRET: ${DASHBOARD_SESSION_SECRET:-change-me-to-a-long-random-string}
     depends_on:
       - api
     ports:

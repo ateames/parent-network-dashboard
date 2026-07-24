@@ -360,7 +360,12 @@ async def correlate_window(
     """
     cfg = cfg or settings
     if threshold is None:
-        threshold_dec = Decimal(str(cfg.correlation_confidence_threshold))
+        from app.settings_store import load_thresholds
+
+        thresholds = await load_thresholds(session, cfg=cfg)
+        threshold_dec = Decimal(
+            str(thresholds["correlation_confidence_threshold"])
+        )
     else:
         threshold_dec = Decimal(str(threshold))
 

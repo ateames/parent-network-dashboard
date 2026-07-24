@@ -29,9 +29,15 @@ from app.models.raw import (
     RawUnifiEvent,
     RawUnifiSyslog,
 )
+from app.models.settings import (
+    AppThresholds,
+    ExpectedActivitySchedule,
+    WorkerHeartbeat,
+)
 
 __all__ = [
     "ActivityBaseline",
+    "AppThresholds",
     "AuditLog",
     "Base",
     "CorrelationStatus",
@@ -40,6 +46,7 @@ __all__ = [
     "DnsActivity",
     "DnsQuery",
     "DnsQueryStatus",
+    "ExpectedActivitySchedule",
     "Finding",
     "FindingConfidence",
     "FindingFeedback",
@@ -63,6 +70,7 @@ __all__ = [
     "SourceHealthStatus",
     "StreamEvent",
     "StreamEventKind",
+    "WorkerHeartbeat",
 ]
 
 # Tables expected after Alembic migrations (public / test schema).
@@ -87,5 +95,8 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "person_device",
         "source_health",
         "audit_log",
+        "app_thresholds",
+        "expected_activity_schedule",
+        "worker_heartbeat",
     }
 )

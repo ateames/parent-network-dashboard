@@ -194,12 +194,16 @@ async def get_baseline(
         if row is not None:
             return _baseline_out(row_to_baseline(row))
 
+    from app.settings_store import load_thresholds
+
+    thresholds = await load_thresholds(session)
     result = await compute_and_store_baseline(
         session,
         subject_type=subject_type,
         subject_id=subject_id,
         window=window,
         sample_count=samples,
+        z_threshold=float(thresholds["baseline_z_threshold"]),
         persist=True,
     )
     await session.commit()

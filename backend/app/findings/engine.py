@@ -491,8 +491,9 @@ def rule_activity_outside_expected_hours(
     *,
     typical_hours_utc: Sequence[int],
     min_lookups: int = OUTSIDE_HOURS_MIN_LOOKUPS,
+    hours_source: str = "baseline",
 ) -> FindingDraft | None:
-    """Flag DNS activity in hours outside the subject's typical active hours."""
+    """Flag DNS activity in hours outside expected / typical active hours."""
     if not typical_hours_utc:
         return None
     typical = {int(h) for h in typical_hours_utc if 0 <= int(h) <= 23}
@@ -509,15 +510,28 @@ def rule_activity_outside_expected_hours(
 
     hours = sorted({e.queried_at.astimezone(UTC).hour for e in outside})
     label = stats.label()
+    using_schedule = hours_source == "schedule"
+    hours_label = "expected hours" if using_schedule else "typical active hours"
     summary = (
         f"{len(outside)} DNS lookups attributed to {label} occurred outside "
-        f"typical active hours (UTC hours {hours})."
+        f"{hours_label} (UTC hours {hours})."
     )
     why = (
         f"Rule {RULE_ACTIVITY_OUTSIDE_HOURS}: {len(outside)} lookups in hours "
-        f"{hours} while typical_active_hours_utc={sorted(typical)} "
-        f"(threshold>={min_lookups} lookups)."
+        f"{hours} while expected_hours_utc={sorted(typical)} "
+        f"(source={hours_source}, threshold>={min_lookups} lookups)."
     )
+    missing: tuple[str, ...]
+    if using_schedule:
+        missing = (
+            "Expected hours come from the local household schedule",
+            "DNS lookups do not prove specific content was accessed",
+        )
+    else:
+        missing = (
+            "Typical hours are statistical, not a household schedule",
+            "DNS lookups do not prove specific content was accessed",
+        )
     return FindingDraft(
         rule_id=RULE_ACTIVITY_OUTSIDE_HOURS,
         severity=FindingSeverity.LOW,
@@ -530,15 +544,13 @@ def rule_activity_outside_expected_hours(
             "adjust household expectations if the pattern is normal."
         ),
         subject_label=label,
-        missing_info=(
-            "Typical hours are statistical, not a household schedule",
-            "DNS lookups do not prove specific content was accessed",
-        ),
+        missing_info=missing,
         evidence={
             "rule_id": RULE_ACTIVITY_OUTSIDE_HOURS,
             "outside_lookup_count": len(outside),
             "outside_hours_utc": hours,
             "typical_active_hours_utc": sorted(typical),
+            "hours_source": hours_source,
             "threshold_min_lookups": min_lookups,
             "sample_lookups": [
                 {
@@ -833,6 +845,8 @@ def evaluate_rules(
     deviations: dict[uuid.UUID, list[Deviation]] | None = None,
     transitions: Sequence[ConnectionTransition] = (),
     security_events: Sequence[SecuritySyslogEvent] = (),
+    expected_hours_by_person: dict[uuid.UUID, Sequence[int]] | None = None,
+    expected_hours_by_device: dict[uuid.UUID, Sequence[int]] | None = None,
     now: datetime | None = None,
 ) -> list[FindingDraft]:
     """Run all deterministic rules over in-memory inputs."""
@@ -841,6 +855,8 @@ def evaluate_rules(
         at = at.replace(tzinfo=UTC)
     baselines = baselines or {}
     deviations = deviations or {}
+    by_person = expected_hours_by_person or {}
+    by_device = expected_hours_by_device or {}
 
     findings: list[FindingDraft] = []
     findings.extend(rule_unknown_device_online(devices, now=at))
@@ -864,12 +880,21 @@ def evaluate_rules(
         if draft is not None:
             findings.append(draft)
 
-        typical = (
-            baseline.typical_active_hours_utc if baseline is not None else ()
-        )
+        hours_source = "baseline"
+        typical: Sequence[int] = ()
+        if stats.person_id is not None and stats.person_id in by_person:
+            typical = by_person[stats.person_id]
+            hours_source = "schedule"
+        elif stats.device_id is not None and stats.device_id in by_device:
+            typical = by_device[stats.device_id]
+            hours_source = "schedule"
+        elif baseline is not None:
+            typical = baseline.typical_active_hours_utc
+
         outside = rule_activity_outside_expected_hours(
             stats,
             typical_hours_utc=typical,
+            hours_source=hours_source,
         )
         if outside is not None:
             findings.append(outside)
@@ -1408,6 +1433,23 @@ async def evaluate_and_persist(
         by_mac=by_mac,
     )
 
+    from app.settings_store import list_schedules
+
+    expected_hours_by_person: dict[uuid.UUID, Sequence[int]] = {}
+    expected_hours_by_device: dict[uuid.UUID, Sequence[int]] = {}
+    weekday = at.astimezone(UTC).weekday()
+    for sched in await list_schedules(session, active_only=True):
+        days = sched.days_of_week
+        if days is not None and weekday not in {int(d) for d in days}:
+            continue
+        hours = [int(h) for h in sched.expected_hours_utc if 0 <= int(h) <= 23]
+        if not hours:
+            continue
+        if sched.person_id is not None:
+            expected_hours_by_person[sched.person_id] = hours
+        elif sched.device_id is not None:
+            expected_hours_by_device[sched.device_id] = hours
+
     drafts = evaluate_rules(
         devices=devices,
         lookups=lookups,
@@ -1416,6 +1458,8 @@ async def evaluate_and_persist(
         deviations=deviations,
         transitions=transitions,
         security_events=security_events,
+        expected_hours_by_person=expected_hours_by_person,
+        expected_hours_by_device=expected_hours_by_device,
         now=at,
     )
     suppression_keys = await load_suppression_keys(session)

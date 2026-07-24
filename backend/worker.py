@@ -11,9 +11,11 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import AsyncSessionLocal, engine
 from app.findings.engine import evaluate_and_persist
+from app.health.system_health import touch_worker_heartbeat
 from app.ingest.pihole import run_poll_once as run_pihole_poll_once
 from app.ingest.unifi import run_poll_once as run_unifi_poll_once
 from app.ingest.unifi_syslog import run_syslog_listener, syslog_health_loop
+from app.settings_store import load_thresholds
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,25 +35,41 @@ async def connect_db() -> None:
     logger.info("database connection ok")
 
 
+async def _poll_intervals() -> tuple[int, int]:
+    """Read poll intervals from DB thresholds (env defaults when unset)."""
+    async with AsyncSessionLocal() as session:
+        thresholds = await load_thresholds(session)
+        await session.commit()
+    pihole = max(5, int(thresholds["pihole_poll_interval_seconds"]))
+    unifi = max(5, int(thresholds["unifi_poll_interval_seconds"]))
+    return pihole, unifi
+
+
 async def heartbeat_loop() -> None:
     while True:
-        logger.info("worker alive")
+        try:
+            async with AsyncSessionLocal() as session:
+                await touch_worker_heartbeat(session, detail="alive")
+                await session.commit()
+            logger.info("worker alive")
+        except Exception:
+            logger.exception("worker heartbeat failed")
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 
 async def pihole_poll_loop() -> None:
     """Poll Pi-hole on a configurable interval; advance `since` after success."""
     since: float | None = None
-    interval = max(5, settings.pihole_poll_interval_seconds)
-    logger.info("pihole poll interval=%ss", interval)
     while True:
+        interval, _ = await _poll_intervals()
         try:
             batch = await run_pihole_poll_once(since=since)
             logger.info(
-                "pihole ingest batch=%s records=%s status=%s",
+                "pihole ingest batch=%s records=%s status=%s interval=%ss",
                 batch.id,
                 batch.record_count,
                 batch.status.value,
+                interval,
             )
             # Next poll asks for queries after this run started (unix seconds).
             since = batch.started_at.timestamp()
@@ -62,16 +80,16 @@ async def pihole_poll_loop() -> None:
 
 async def unifi_poll_loop() -> None:
     """Poll UniFi on a configurable interval (read-only clients + events)."""
-    interval = max(5, settings.unifi_poll_interval_seconds)
-    logger.info("unifi poll interval=%ss", interval)
     while True:
+        _, interval = await _poll_intervals()
         try:
             batch = await run_unifi_poll_once()
             logger.info(
-                "unifi ingest batch=%s records=%s status=%s",
+                "unifi ingest batch=%s records=%s status=%s interval=%ss",
                 batch.id,
                 batch.record_count,
                 batch.status.value,
+                interval,
             )
         except Exception:
             logger.exception("unifi ingest failed")

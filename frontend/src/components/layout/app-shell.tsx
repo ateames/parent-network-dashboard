@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { Menu } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,8 +13,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
 
 type AppShellProps = {
   children: ReactNode;
@@ -56,12 +56,30 @@ function NavLinks({
 
 export function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
+
   const current =
     NAV_ITEMS.find(
       (item) =>
         pathname === item.href || pathname.startsWith(`${item.href}/`),
     )?.label ?? "Dashboard";
+
+  async function logout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.replace("/login");
+      router.refresh();
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -80,8 +98,19 @@ export function AppShell({ children }: AppShellProps) {
                 <SheetHeader className="border-b">
                   <SheetTitle>Parent Network</SheetTitle>
                 </SheetHeader>
-                <div className="p-3">
+                <div className="space-y-3 p-3">
                   <NavLinks onNavigate={() => setMobileOpen(false)} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => void logout()}
+                    disabled={loggingOut}
+                  >
+                    <LogOut className="size-3.5" />
+                    {loggingOut ? "Signing out…" : "Sign out"}
+                  </Button>
                 </div>
               </SheetContent>
             </Sheet>
@@ -95,9 +124,20 @@ export function AppShell({ children }: AppShellProps) {
               {current}
             </p>
           </div>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="hidden md:inline-flex"
+            onClick={() => void logout()}
+            disabled={loggingOut}
+          >
+            <LogOut className="size-3.5" />
+            {loggingOut ? "Signing out…" : "Sign out"}
+          </Button>
         </div>
 
-        {/* Tablet / desktop top nav */}
         <div className="hidden border-t md:block">
           <div className="mx-auto flex w-full max-w-7xl gap-1 overflow-x-auto px-4 py-2 sm:px-6">
             {NAV_ITEMS.map((item) => {
