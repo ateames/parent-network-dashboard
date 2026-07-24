@@ -13,9 +13,10 @@ up:
 	@test -f infra/.env || (echo "Missing infra/.env — copy from infra/.env.example" && exit 1)
 	$(COMPOSE) up -d --build
 
-## Export FastAPI OpenAPI schema and regenerate frontend TypeScript types
+## Export FastAPI OpenAPI schema (pinned Docker deps) and regenerate frontend types
 openapi:
-	cd $(BACKEND) && python3.11 scripts/export_openapi.py
+	docker build -f frontend/Dockerfile --target openapi -t pnd-openapi-export .
+	docker run --rm pnd-openapi-export cat /openapi.json > $(BACKEND)/openapi.json
 	cd frontend && npm run generate:api
 
 ## Stop containers (named volume kept)

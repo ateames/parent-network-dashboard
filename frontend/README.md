@@ -36,13 +36,13 @@ const health = await apiFetch<{ status: string }>("/health");
 Frontend types come from the FastAPI OpenAPI schema (not hand-written):
 
 ```bash
-# from repo root
+# from repo root (exports via the same pinned deps as the frontend Docker image)
 make openapi
 # → backend/openapi.json
 # → frontend/src/generated/openapi.ts
 ```
 
-Docker frontend builds regenerate these in-image. Locally, run `make openapi` after backend schema changes.
+Docker frontend builds regenerate these in-image. Run `make openapi` after backend schema changes so committed types match the image.
 
 ## Local authentication
 
