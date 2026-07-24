@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/pages/placeholder-page";
+import { LiveFeed } from "@/components/live/live-feed";
 
 export default function LivePage() {
-  return (
-    <PlaceholderPage
-      title="Live"
-      description="Live activity via SSE will appear here."
-    />
-  );
+  return <LiveFeed />;
 }
