@@ -367,6 +367,9 @@ async def test_down_source_marks_data_incomplete_not_silent_zeros(
     assert body["trends"]["incomplete"] is True
     assert any("pihole_api" in r for r in body["trends"]["incomplete_reasons"])
 
+    # Active children need both sources; Pi-hole alone down is enough.
+    assert body["active_children_incomplete"] is True
+
     # UniFi still healthy → online counts remain real numbers, not wiped.
     assert body["online_devices"]["incomplete"] is False
     assert body["online_devices"]["count"] == 1
@@ -419,6 +422,9 @@ async def test_unifi_down_nulls_online_counts(
     assert body["online_devices"]["devices"] == []
     assert body["unknown_unassigned"]["incomplete"] is True
     assert body["unknown_unassigned"]["count"] is None
+
+    # Active children need both sources; UniFi alone down is enough.
+    assert body["active_children_incomplete"] is True
 
     network = {m["metric"]: m for m in body["trends"]["network"]}
     assert network["upload_bytes"]["incomplete"] is True

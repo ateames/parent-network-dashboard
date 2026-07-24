@@ -611,7 +611,7 @@ async def build_dashboard_summary(
                 )
             )
 
-    active_children_incomplete = pihole_incomplete and unifi_incomplete
+    active_children_incomplete = pihole_incomplete or unifi_incomplete
 
     if pihole_incomplete:
         recent_activity = RecentActivityOut(incomplete=True, items=[])
