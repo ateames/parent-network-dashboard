@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/pages/placeholder-page";
+import { ReviewPage } from "@/components/review/review-page";
 
-export default function ReviewPage() {
-  return (
-    <PlaceholderPage
-      title="Review"
-      description="Review queue for decisions and audit will appear here."
-    />
-  );
+export default function Page() {
+  return <ReviewPage />;
 }
