@@ -1,25 +1,159 @@
 # Parent Network Dashboard
 
-A locally hosted family network visibility platform that ingests **read-only** data from Pi-hole and UniFi and presents a parent-focused dashboard. Designed to run on a dedicated Raspberry Pi (arm64) via Docker Compose.
+A LAN-only family network visibility platform that ingests **read-only** data from Pi-hole and UniFi and presents a parent-focused dashboard. Designed to run on a dedicated **Raspberry Pi (arm64)** via Docker Compose.
 
-## Status
+Household data stays on your local network. Nothing in this project writes to Pi-hole or UniFi.
 
-Backend API + worker (Pi-hole + UniFi API ingest + UniFi syslog listener), Next.js frontend (server-side API proxy), Docker Compose stack, and PostgreSQL schema (Alembic) are in place.
+## What runs on the Pi
 
-## Quick start
+| Service | Role | Host ports (defaults) |
+|---------|------|------------------------|
+| `frontend` | Next.js dashboard (local login + server-side API proxy) | **3000** |
+| `api` | FastAPI (migrations on start, health/version endpoints) | **8000** |
+| `worker` | Pi-hole / UniFi API polling + UniFi syslog listener | **5514** UDP/TCP |
+| `db` | PostgreSQL 16 (named volume `parent-network-pgdata`) | **5432** (optional; local tooling) |
+
+Use the dashboard on port **3000**. Prefer not exposing `8000` / `5432` beyond the Pi itself once the stack is healthy.
+
+## Hardware & OS
+
+- **Raspberry Pi 4 or 5** (64-bit / arm64), ideally **4 GB+ RAM**
+- **microSD** (or USB SSD) with enough free space for images + Postgres data (16 GB+ recommended)
+- **Raspberry Pi OS (64-bit)** or another arm64 Linux with Docker
+- Static or DHCP-reserved **LAN IP** for the Pi (needed for UniFi syslog and browser access)
+
+Confirm architecture before installing:
 
 ```bash
-cp infra/.env.example infra/.env   # set ADMIN_* / DASHBOARD_* secrets
-make up          # db + api + worker + frontend (api runs alembic upgrade head on start)
-curl localhost:8000/health
-open http://localhost:3000/login    # local admin login, then dashboard
-make migrate     # apply migrations manually (optional; also runs on api start)
-make logs        # follow all service logs
-make test        # backend pytest
-make down        # stop containers (volume kept)
+uname -m   # expect aarch64
 ```
 
-Local UI auth setup: [`docs/local-auth.md`](docs/local-auth.md).
+## Install Docker on the Pi
+
+1. Update packages and install prerequisites:
+
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   sudo apt install -y git curl ca-certificates
+   ```
+
+2. Install Docker Engine + Compose plugin (official convenience script, or follow [Docker’s Debian/Raspberry Pi OS docs](https://docs.docker.com/engine/install/)):
+
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker "$USER"
+   ```
+
+3. Log out and back in (or reboot) so the `docker` group applies, then verify:
+
+   ```bash
+   docker --version
+   docker compose version
+   ```
+
+4. Optional but recommended — start Docker on boot and reduce SD-card wear later with a USB SSD for `/var/lib/docker` if you run the stack long-term.
+
+## Clone and configure
+
+On the Pi:
+
+```bash
+git clone <this-repo-url> parent-network-dashboard
+cd parent-network-dashboard
+cp infra/.env.example infra/.env
+nano infra/.env   # or: vim / code — edit secrets and LAN hosts
+```
+
+### Required secrets (change before LAN exposure)
+
+Edit `infra/.env`. Defaults are placeholders and are **not** safe on a shared network.
+
+```env
+# PostgreSQL
+POSTGRES_USER=parent
+POSTGRES_PASSWORD=<strong-db-password>
+POSTGRES_DB=parent_network
+DATABASE_URL=postgresql+asyncpg://parent:<strong-db-password>@db:5432/parent_network
+
+# API admin (server-side only; Next.js proxy uses ADMIN_TOKEN)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<strong-password>
+ADMIN_TOKEN=<long-random-token>
+
+# Dashboard UI login (browser never sees ADMIN_TOKEN)
+DASHBOARD_USERNAME=admin
+DASHBOARD_PASSWORD=<strong-password>
+DASHBOARD_SESSION_SECRET=<long-random-string>
+```
+
+Generate random values on the Pi if helpful:
+
+```bash
+openssl rand -hex 32   # ADMIN_TOKEN or DASHBOARD_SESSION_SECRET
+```
+
+Details: [`docs/local-auth.md`](docs/local-auth.md).
+
+### Point ingest at your LAN hosts
+
+```env
+# Pi-hole (read-only)
+PIHOLE_URL=http://<pihole-lan-ip-or-hostname>
+PIHOLE_AUTH_METHOD=password          # none | password | token
+PIHOLE_PASSWORD=<pihole-web-password>
+# PIHOLE_TOKEN=                      # if using legacy token auth
+PIHOLE_VERIFY_TLS=false
+
+# UniFi Network Application / controller (read-only API)
+UNIFI_URL=https://<unifi-lan-ip-or-hostname>
+UNIFI_AUTH_METHOD=session            # session | token
+UNIFI_USERNAME=<local-unifi-user>
+UNIFI_PASSWORD=<password>
+# UNIFI_TOKEN=                       # if using API key / bearer
+UNIFI_SITE=default
+UNIFI_VERIFY_TLS=false               # typical for local self-signed certs
+```
+
+Use LAN IPs if `.local` mDNS is unreliable from Docker. The worker only **reads** these APIs.
+
+### UniFi syslog (controller → Pi)
+
+Keep the listener enabled so UniFi can push security/event logs one-way to this host:
+
+```env
+UNIFI_SYSLOG_ENABLED=true
+UNIFI_SYSLOG_HOST=0.0.0.0
+UNIFI_SYSLOG_PORT=5514
+UNIFI_SYSLOG_PROTOCOLS=udp,tcp
+```
+
+In the UniFi UI, set remote syslog / SIEM destination to **this Pi’s LAN IP** and port **5514**. Step-by-step: [`docs/unifi-syslog.md`](docs/unifi-syslog.md).
+
+### Published ports
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FRONTEND_PORT` | `3000` | Dashboard (browse from other devices) |
+| `API_PORT` | `8000` | FastAPI (health checks / optional direct access) |
+| `UNIFI_SYSLOG_PORT` | `5514` | Syslog from UniFi gateway/controller |
+| `POSTGRES_PORT` | `5432` | Postgres on the host (optional) |
+
+`BACKEND_URL=http://api:8000` is correct inside Compose — do not change it for normal Pi deploys.
+
+## Start the stack
+
+First build on a Pi can take several minutes (arm64 image builds).
+
+```bash
+make up          # requires infra/.env; builds + starts db, api, worker, frontend
+make logs        # follow all services
+```
+
+Migrations run automatically when the `api` container starts (`alembic upgrade head`). Manual run:
+
+```bash
+make migrate
+```
 
 | Target | What it does |
 |--------|----------------|
@@ -30,7 +164,75 @@ Local UI auth setup: [`docs/local-auth.md`](docs/local-auth.md).
 | `make test` | Run backend pytest in a one-off api container (starts `db`) |
 | `make openapi` | Export OpenAPI schema and regenerate frontend TypeScript types |
 
-API listens on port **8000** (`GET /health`, `GET /version`, `GET /api/sources/health`, `GET /api/system/health`). Dashboard listens on port **3000** (browser calls `/api/proxy/*` and `/api/auth/*` only; UI gated by local login).
+## Access on the LAN
+
+1. Find the Pi’s IPv4 address:
+
+   ```bash
+   hostname -I
+   # example: 192.168.1.50
+   ```
+
+2. From a phone/laptop on the **same LAN**, open:
+
+   ```
+   http://<pi-lan-ip>:3000/login
+   ```
+
+   Example: `http://192.168.1.50:3000/login`
+
+3. Sign in with `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
+
+4. Optional checks from the Pi itself:
+
+   ```bash
+   curl -s http://localhost:8000/health
+   curl -s http://localhost:8000/version
+   curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8000/api/sources/health
+   ```
+
+Browser traffic should go through the dashboard only (`/api/proxy/*` and `/api/auth/*`). The admin API token stays on the Next.js server.
+
+### Firewall (if enabled)
+
+Allow LAN access to the dashboard and syslog. Example with `ufw` (adjust interface/subnet as needed):
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 3000 proto tcp comment 'PND dashboard'
+sudo ufw allow from <unifi-controller-or-gateway-ip> to any port 5514 comment 'UniFi syslog'
+# Prefer not publishing 8000/5432 to the whole LAN in production
+sudo ufw enable
+sudo ufw status
+```
+
+Give the Pi a **DHCP reservation** (or static IP) in your router so UniFi syslog and bookmarks keep working after reboot.
+
+## Verify ingest
+
+After login, check Source Health / System Health in the UI, or hit the API health endpoints above.
+
+- **Pi-hole / UniFi API:** `ok` after successful polls (interval defaults to 60s).
+- **UniFi syslog:** becomes healthy once the controller sends lines to port **5514**; generate a known event (e.g. a Wi‑Fi client connect) if needed.
+
+Offline replay (dev / no live gear):
+
+```bash
+python -m app.ingest.pihole --replay fixtures/pihole_sample.json
+python -m app.ingest.unifi --replay fixtures
+python -m app.ingest.unifi_syslog --replay fixtures/unifi_syslog_sample.log
+```
+
+## Day-2 operations
+
+```bash
+cd ~/parent-network-dashboard   # or your clone path
+git pull
+make up                         # rebuild + recreate changed services
+make logs
+make down                       # stop; Postgres data kept in volume parent-network-pgdata
+```
+
+Reboot safety: Compose services use `restart: unless-stopped`, so the stack comes back after a Pi reboot as long as Docker is enabled.
 
 ## Repository layout
 
@@ -52,7 +254,7 @@ API listens on port **8000** (`GET /health`, `GET /version`, `GET /api/sources/h
 - **Honest language** — DNS ≠ proof of content viewed
 - **Durable device identity** — MAC / UniFi client id / hostname, not IP alone
 
-Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) (mirrored for Cursor agents at [`.cursor/rules/project.md`](.cursor/rules/project.md)).
+Full conventions: [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) (also [`.cursor/rules/project.md`](.cursor/rules/project.md)).
 
 ## Tech stack (pinned)
 
@@ -60,17 +262,11 @@ Full non-negotiable conventions live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS
 - **Frontend:** Next.js App Router, React, TypeScript, Tailwind, shadcn/ui, TanStack Query, OpenAPI types, SSE
 - **Orchestration:** Docker Compose, arm64-compatible slim images
 
-## Next steps
+## Related docs
 
-1. Point `PIHOLE_*` / `UNIFI_*` env at your LAN hosts (or replay fixtures offline)
-2. Set strong `ADMIN_*` / `DASHBOARD_*` secrets before LAN exposure
-
-Offline replay examples:
-
-```bash
-python -m app.ingest.pihole --replay fixtures/pihole_sample.json
-python -m app.ingest.unifi --replay fixtures
-python -m app.ingest.unifi_syslog --replay fixtures/unifi_syslog_sample.log
-```
-
-Point the UniFi controller’s syslog at this Pi (read-only, one-way): see [`docs/unifi-syslog.md`](docs/unifi-syslog.md).
+| Doc | Topic |
+|-----|--------|
+| [`docs/local-auth.md`](docs/local-auth.md) | Dashboard login vs `ADMIN_TOKEN` |
+| [`docs/unifi-syslog.md`](docs/unifi-syslog.md) | Point UniFi syslog at this Pi |
+| [`frontend/README.md`](frontend/README.md) | Frontend proxy rules and local UI dev |
+| [`backend/README.md`](backend/README.md) | Backend package / migrations |
