@@ -58,7 +58,7 @@ uname -m   # expect aarch64
 On the Pi:
 
 ```bash
-git clone <this-repo-url> parent-network-dashboard
+git clone https://github.com/ateames/parent-network-dashboard.git parent-network-dashboard
 cd parent-network-dashboard
 cp infra/.env.example infra/.env
 nano infra/.env   # or: vim / code — edit secrets and LAN hosts

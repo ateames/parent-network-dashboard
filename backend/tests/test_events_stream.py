@@ -1,15 +1,17 @@
-"""Live event bus, SSE framing, and recent backfill ordering."""
+"""Live event bus, SSE framing, HTTP SSE delivery, and recent backfill ordering."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+import uvicorn
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -48,6 +50,26 @@ async def api_client(
     app.dependency_overrides.pop(get_session, None)
 
 
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _parse_sse_data_lines(chunk: str) -> list[dict]:
+    events: list[dict] = []
+    data_lines: list[str] = []
+    for line in chunk.splitlines():
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+        elif line == "" and data_lines:
+            events.append(json.loads("\n".join(data_lines)))
+            data_lines = []
+    if data_lines:
+        events.append(json.loads("\n".join(data_lines)))
+    return events
+
+
 @pytest.mark.asyncio
 async def test_publish_delivers_to_bus_subscriber(
     db_session: AsyncSession,
@@ -77,6 +99,106 @@ async def test_publish_delivers_to_bus_subscriber(
         assert event.finding_id is None
     finally:
         bus.unsubscribe(queue)
+
+
+@pytest.mark.asyncio
+async def test_publish_delivers_to_sse_client_over_http(
+    migrated_engine: AsyncEngine,
+    db_session: AsyncSession,
+) -> None:
+    """Publishing an event delivers it over a real uvicorn HTTP SSE stream.
+
+    ASGITransport cannot stream open-ended responses; this covers the HTTP path.
+    """
+    factory = async_sessionmaker(
+        bind=migrated_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    async def _override() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override
+
+    port = _free_port()
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = False
+    serve_task = asyncio.create_task(server.serve())
+
+    try:
+        for _ in range(200):
+            if server.started:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("uvicorn did not start in time")
+
+        received: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+
+        async with AsyncClient(
+            base_url=f"http://127.0.0.1:{port}",
+            timeout=10.0,
+        ) as client:
+
+            async def _reader() -> None:
+                async with client.stream("GET", "/api/events/stream") as response:
+                    assert response.status_code == 200
+                    assert "text/event-stream" in response.headers["content-type"]
+                    buffer = ""
+                    async for text in response.aiter_text():
+                        buffer += text
+                        for event in _parse_sse_data_lines(buffer):
+                            if not received.done():
+                                received.set_result(event)
+                            return
+
+            reader = asyncio.create_task(_reader())
+            bus = get_event_bus()
+            try:
+                for _ in range(200):
+                    if bus.subscriber_count > 0:
+                        break
+                    await asyncio.sleep(0.01)
+                else:
+                    pytest.fail("SSE client did not subscribe in time")
+
+                published = await publish_stream_event(
+                    db_session,
+                    kind=StreamEventKind.BLOCKED_QUERY_BURST,
+                    severity=FindingSeverity.MEDIUM,
+                    summary=(
+                        "Several blocked DNS lookups attributed to Alex in 15 minutes."
+                    ),
+                    occurred_at=datetime(2024, 7, 23, 12, 0, tzinfo=UTC),
+                )
+                await db_session.commit()
+
+                event = await asyncio.wait_for(received, timeout=2.0)
+                assert event["id"] == str(published.id)
+                assert event["kind"] == StreamEventKind.BLOCKED_QUERY_BURST.value
+                assert event["severity"] == FindingSeverity.MEDIUM.value
+                assert "blocked DNS lookups" in event["summary"]
+                assert event["finding_id"] is None
+            finally:
+                if not reader.done():
+                    reader.cancel()
+                try:
+                    await reader
+                except asyncio.CancelledError:
+                    pass
+    finally:
+        server.should_exit = True
+        await serve_task
+        app.dependency_overrides.pop(get_session, None)
 
 
 def test_sse_frame_encodes_stream_event() -> None:
