@@ -67,6 +67,120 @@ class UnifiClientError(RuntimeError):
     """Raised when a read-only UniFi API call fails."""
 
 
+_UNIFI_OS_RETRY_STATUSES = frozenset({401, 403, 404})
+_CLASSIC_LOGIN_PATH = "/api/login"
+_UNIFI_OS_LOGIN_PATH = "/api/auth/login"
+_UNIFI_OS_NETWORK_PREFIX = "/proxy/network"
+# Official UniFi Integrations API (X-API-KEY). Classic /api/s/* rejects these keys.
+_INTEGRATION_API_PREFIX = "/proxy/network/integration/v1"
+_INTEGRATION_PAGE_LIMIT = 100
+_HTTP_ERROR_BODY_MAX = 500
+
+
+def format_unifi_http_error(prefix: str, response: httpx.Response) -> str:
+    """Build an error string with status and a truncated UniFi response body."""
+    body = (response.text or "").strip().replace("\n", " ")
+    if len(body) > _HTTP_ERROR_BODY_MAX:
+        body = body[:_HTTP_ERROR_BODY_MAX] + "…"
+    if body:
+        return f"{prefix}: HTTP {response.status_code} — {body}"
+    return f"{prefix}: HTTP {response.status_code}"
+
+
+def unifi_os_network_path(path: str) -> str | None:
+    """Return UniFi OS proxied Network API path, or None if not applicable.
+
+    Classic ``/api/s/...`` becomes ``/proxy/network/api/s/...``. Paths that
+    already use the proxy prefix (or are absolute URLs) are left alone.
+    """
+    if path.startswith(("http://", "https://")):
+        return None
+    normalized = path if path.startswith("/") else f"/{path}"
+    if normalized.startswith(f"{_UNIFI_OS_NETWORK_PREFIX}/"):
+        return None
+    if normalized.startswith("/api/"):
+        return f"{_UNIFI_OS_NETWORK_PREFIX}{normalized}"
+    return None
+
+
+def map_integration_client(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Map Integration API client overview → classic-shaped client dict."""
+    mac = row.get("macAddress") or row.get("mac")
+    if not mac:
+        return None
+    connected = row.get("connectedAt")
+    client_type = str(row.get("type") or "").upper()
+    return {
+        "_id": row.get("id"),
+        "mac": mac,
+        "hostname": row.get("name"),
+        "name": row.get("name"),
+        "ip": row.get("ipAddress") or row.get("ip"),
+        "first_seen": connected,
+        "last_seen": connected,
+        "is_wired": client_type == "WIRED",
+        "type": row.get("type"),
+        "uplinkDeviceId": row.get("uplinkDeviceId"),
+        "access": row.get("access"),
+        "tx_bytes": row.get("tx_bytes"),
+        "rx_bytes": row.get("rx_bytes"),
+        "_integration": True,
+    }
+
+
+def map_integration_device(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Map Integration API adopted device → classic-shaped device dict."""
+    mac = row.get("macAddress") or row.get("mac")
+    if not mac:
+        return None
+    return {
+        "_id": row.get("id"),
+        "mac": mac,
+        "name": row.get("name"),
+        "hostname": row.get("name"),
+        "ip": row.get("ipAddress") or row.get("ip"),
+        "model": row.get("model"),
+        "state": row.get("state"),
+        "type": row.get("model"),
+        "features": row.get("features"),
+        "_integration": True,
+    }
+
+
+def map_integration_network(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Map Integration API network overview → classic-ish networkconf dict."""
+    return {
+        "_id": row.get("id"),
+        "name": row.get("name"),
+        "vlan": row.get("vlanId"),
+        "enabled": row.get("enabled"),
+        "attr_hidden_id": "default" if row.get("default") else None,
+        "purpose": "corporate",
+        "_integration": True,
+    }
+
+
+def resolve_integration_site_id(
+    sites: Sequence[Mapping[str, Any]],
+    configured: str,
+) -> str | None:
+    """Match configured site against Integration id, internalReference, or name."""
+    needle = configured.strip().lower()
+    if not needle:
+        return None
+    for site in sites:
+        candidates = (
+            site.get("id"),
+            site.get("internalReference"),
+            site.get("name"),
+        )
+        for value in candidates:
+            if value is not None and str(value).strip().lower() == needle:
+                site_id = site.get("id")
+                return str(site_id) if site_id else None
+    return None
+
+
 class UnifiClient:
     """httpx client for UniFi controller reads only — never writes config."""
 
@@ -78,13 +192,22 @@ class UnifiClient:
     ) -> None:
         self._cfg = cfg or settings
         self._owns_client = client is None
+        base_url = self._cfg.unifi_url.rstrip("/")
+        # UniFi OS consoles serve the API over HTTPS; http often 401s or redirects oddly.
+        if base_url.startswith("http://"):
+            https_url = "https://" + base_url.removeprefix("http://")
+            logger.info("UniFi URL used http://; upgrading to %s", https_url)
+            base_url = https_url
         self._http = client or httpx.AsyncClient(
-            base_url=self._cfg.unifi_url.rstrip("/"),
+            base_url=base_url,
             timeout=30.0,
             verify=self._cfg.unifi_verify_tls,
             follow_redirects=True,
         )
         self._authenticated = False
+        # After a successful UniFi OS path retry, prefer proxy paths for later GETs.
+        self._prefer_unifi_os_paths = False
+        self._integration_site_id: str | None = None
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -96,24 +219,34 @@ class UnifiClient:
     async def __aexit__(self, *args: object) -> None:
         await self.aclose()
 
+    def _uses_integration_api(self) -> bool:
+        return self._cfg.unifi_auth_method.strip().lower() == "token"
+
     def _site_path(self, template: str) -> str:
         path = template.replace("{site}", self._cfg.unifi_site)
         if path.startswith(("http://", "https://")):
             return path
         return path if path.startswith("/") else f"/{path}"
 
+    def _resolve_get_path(self, path_template: str) -> str:
+        path = self._site_path(path_template)
+        if self._prefer_unifi_os_paths:
+            proxied = unifi_os_network_path(path)
+            if proxied is not None:
+                return proxied
+        return path
+
     def _auth_headers(self) -> dict[str, str]:
         method = self._cfg.unifi_auth_method.strip().lower()
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {"Accept": "application/json"}
         if method == "token":
             token = self._cfg.unifi_token.strip()
             if token:
-                # UniFi OS API key or bearer-style token.
+                # Integration API keys use X-API-KEY only (not classic session cookies).
                 if token.lower().startswith("bearer "):
                     headers["Authorization"] = token
                 else:
                     headers["X-API-KEY"] = token
-                    headers["Authorization"] = f"Bearer {token}"
         # Classic controllers may require CSRF from the cookie jar.
         csrf = self._http.cookies.get("csrf_token") or self._http.cookies.get(
             "X-CSRF-Token"
@@ -130,6 +263,7 @@ class UnifiClient:
         if method == "token":
             if not self._cfg.unifi_token.strip():
                 raise UnifiClientError("UNIFI_AUTH_METHOD=token requires UNIFI_TOKEN")
+            await self._resolve_integration_site()
             self._authenticated = True
             return
         if method in {"session", "password"}:
@@ -139,62 +273,204 @@ class UnifiClient:
                     "UNIFI_PASSWORD"
                 )
             login_path = self._site_path(self._cfg.unifi_login_path)
+            payload = {
+                "username": self._cfg.unifi_username,
+                "password": self._cfg.unifi_password,
+            }
             response = await self._http.post(
                 login_path,
-                json={
-                    "username": self._cfg.unifi_username,
-                    "password": self._cfg.unifi_password,
-                },
+                json=payload,
                 headers=self._auth_headers(),
             )
+            if (
+                response.status_code in _UNIFI_OS_RETRY_STATUSES
+                and login_path.rstrip("/") == _CLASSIC_LOGIN_PATH
+            ):
+                logger.info(
+                    "UniFi classic login returned HTTP %s; retrying UniFi OS login",
+                    response.status_code,
+                )
+                response = await self._http.post(
+                    _UNIFI_OS_LOGIN_PATH,
+                    json=payload,
+                    headers=self._auth_headers(),
+                )
+                if response.status_code < 400:
+                    self._prefer_unifi_os_paths = True
             if response.status_code >= 400:
                 raise UnifiClientError(
-                    f"UniFi login failed: HTTP {response.status_code}"
+                    format_unifi_http_error("UniFi login failed", response)
                 )
             self._authenticated = True
             return
         raise UnifiClientError(f"Unknown UNIFI_AUTH_METHOD: {method!r}")
 
+    async def _resolve_integration_site(self) -> str:
+        """Validate API key and resolve site UUID from id / internalReference / name."""
+        if self._integration_site_id:
+            return self._integration_site_id
+        sites = await self._integration_get_all(f"{_INTEGRATION_API_PREFIX}/sites")
+        if not sites:
+            raise UnifiClientError(
+                "UniFi Integration API returned no sites — check the API key"
+            )
+        configured = (self._cfg.unifi_site or "default").strip()
+        site_id = resolve_integration_site_id(sites, configured)
+        if site_id is None and len(sites) == 1:
+            only = sites[0].get("id")
+            site_id = str(only) if only else None
+            logger.info(
+                "UniFi site %r not matched; using sole site id %s",
+                configured,
+                site_id,
+            )
+        if site_id is None:
+            labels = [
+                f"{s.get('name')} ({s.get('internalReference')})" for s in sites[:8]
+            ]
+            raise UnifiClientError(
+                f"UniFi site {configured!r} not found. Available: {', '.join(labels)}"
+            )
+        self._integration_site_id = site_id
+        return site_id
+
+    async def _integration_get_all(self, path: str) -> list[dict[str, Any]]:
+        """Paginate Integration API list endpoints (`data` + `totalCount`)."""
+        offset = 0
+        items: list[dict[str, Any]] = []
+        while True:
+            response = await self._http.get(
+                path,
+                params={"offset": offset, "limit": _INTEGRATION_PAGE_LIMIT},
+                headers=self._auth_headers(),
+            )
+            if response.status_code >= 400:
+                raise UnifiClientError(
+                    format_unifi_http_error(
+                        f"UniFi Integration GET {path} failed", response
+                    )
+                )
+            body = response.json()
+            if isinstance(body, list):
+                return [item for item in body if isinstance(item, dict)]
+            if not isinstance(body, Mapping):
+                raise UnifiClientError("Unexpected UniFi Integration payload shape")
+            page = body.get("data")
+            if not isinstance(page, list):
+                raise UnifiClientError("Unexpected UniFi Integration payload shape")
+            page_dicts = [item for item in page if isinstance(item, dict)]
+            items.extend(page_dicts)
+            total = body.get("totalCount")
+            offset += len(page_dicts)
+            if not page_dicts:
+                break
+            if isinstance(total, int) and offset >= total:
+                break
+            if len(page_dicts) < _INTEGRATION_PAGE_LIMIT:
+                break
+        return items
+
     async def _get_data(self, path_template: str) -> list[dict[str, Any]]:
         if not self._authenticated:
             await self.authenticate()
-        response = await self._http.get(
-            self._site_path(path_template),
-            headers=self._auth_headers(),
-        )
+        path = self._resolve_get_path(path_template)
+        response = await self._http.get(path, headers=self._auth_headers())
+        if response.status_code in _UNIFI_OS_RETRY_STATUSES:
+            proxied = unifi_os_network_path(path)
+            if proxied is not None:
+                logger.info(
+                    "UniFi GET %s returned HTTP %s; retrying %s",
+                    path,
+                    response.status_code,
+                    proxied,
+                )
+                response = await self._http.get(
+                    proxied, headers=self._auth_headers()
+                )
+                if response.status_code < 400:
+                    self._prefer_unifi_os_paths = True
+                    path = proxied
         if response.status_code >= 400:
             raise UnifiClientError(
-                f"UniFi GET {path_template} failed: HTTP {response.status_code}"
+                format_unifi_http_error(
+                    f"UniFi GET {path_template} failed", response
+                )
             )
         return extract_data_list(response.json())
 
     async def fetch_clients(self) -> list[dict[str, Any]]:
         """GET connected clients/stations. Read-only."""
+        if self._uses_integration_api():
+            if not self._authenticated:
+                await self.authenticate()
+            site_id = await self._resolve_integration_site()
+            rows = await self._integration_get_all(
+                f"{_INTEGRATION_API_PREFIX}/sites/{site_id}/clients"
+            )
+            mapped = [map_integration_client(row) for row in rows]
+            return [row for row in mapped if row is not None]
         return await self._get_data(self._cfg.unifi_clients_path)
 
     async def fetch_devices(self) -> list[dict[str, Any]]:
         """GET UniFi infrastructure devices (APs/switches/gateways). Read-only."""
+        if self._uses_integration_api():
+            if not self._authenticated:
+                await self.authenticate()
+            site_id = await self._resolve_integration_site()
+            rows = await self._integration_get_all(
+                f"{_INTEGRATION_API_PREFIX}/sites/{site_id}/devices"
+            )
+            mapped = [map_integration_device(row) for row in rows]
+            return [row for row in mapped if row is not None]
         return await self._get_data(self._cfg.unifi_devices_path)
 
     async def fetch_networks(self) -> list[dict[str, Any]]:
         """GET network configuration. Read-only."""
+        if self._uses_integration_api():
+            if not self._authenticated:
+                await self.authenticate()
+            site_id = await self._resolve_integration_site()
+            rows = await self._integration_get_all(
+                f"{_INTEGRATION_API_PREFIX}/sites/{site_id}/networks"
+            )
+            return [map_integration_network(row) for row in rows]
         return await self._get_data(self._cfg.unifi_networks_path)
 
     async def fetch_events(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         """GET recent controller events. Read-only."""
+        if self._uses_integration_api():
+            # Integration API has no classic event feed; syslog covers security events.
+            return []
         if not self._authenticated:
             await self.authenticate()
         params: dict[str, int] = {
             "_limit": limit if limit is not None else self._cfg.unifi_events_limit,
         }
+        path = self._resolve_get_path(self._cfg.unifi_events_path)
         response = await self._http.get(
-            self._site_path(self._cfg.unifi_events_path),
+            path,
             params=params,
             headers=self._auth_headers(),
         )
+        if response.status_code in _UNIFI_OS_RETRY_STATUSES:
+            proxied = unifi_os_network_path(path)
+            if proxied is not None:
+                logger.info(
+                    "UniFi events GET %s returned HTTP %s; retrying %s",
+                    path,
+                    response.status_code,
+                    proxied,
+                )
+                response = await self._http.get(
+                    proxied,
+                    params=params,
+                    headers=self._auth_headers(),
+                )
+                if response.status_code < 400:
+                    self._prefer_unifi_os_paths = True
         if response.status_code >= 400:
             raise UnifiClientError(
-                f"UniFi events failed: HTTP {response.status_code}"
+                format_unifi_http_error("UniFi events failed", response)
             )
         return extract_data_list(response.json())
 

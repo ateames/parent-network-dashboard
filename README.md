@@ -112,14 +112,13 @@ PIHOLE_URL=http://<pihole-lan-ip>
 PIHOLE_AUTH_METHOD=password
 PIHOLE_PASSWORD=
 UNIFI_URL=https://<unifi-lan-ip>
-UNIFI_AUTH_METHOD=session
-UNIFI_USERNAME=
-UNIFI_PASSWORD=
+UNIFI_AUTH_METHOD=token
+UNIFI_TOKEN=
 UNIFI_SITE=default
 UNIFI_VERIFY_TLS=false
 ```
 
-Use LAN IPs if `.local` mDNS is unreliable from Docker. The worker only **reads** these APIs.
+Prefer **API key** auth (`UNIFI_AUTH_METHOD=token` / setup UI **token**) from UniFi OS **Control Plane → Integrations**. Token mode uses the official Integration API (`/proxy/network/integration/v1/...`) with `X-API-KEY`. Session username/password still works (`session` + `UNIFI_USERNAME` / `UNIFI_PASSWORD`) against classic Network paths (with UniFi OS `/proxy/network` fallback). Use **`https://`** LAN IPs if `.local` mDNS is unreliable from Docker. Site may be `default`, the display name, or a UUID when using token auth. The worker only **reads** these APIs.
 
 ### UniFi syslog (controller → Pi)
 

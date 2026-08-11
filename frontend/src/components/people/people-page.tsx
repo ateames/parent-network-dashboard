@@ -1,16 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Plus, RefreshCw } from "lucide-react";
+import { useState, type FormEvent } from "react";
 
 import { PersonDetail } from "@/components/people/person-detail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { usePeople } from "@/hooks/use-people";
-import type { PersonOut } from "@/lib/api/types";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useCreatePerson, usePeople } from "@/hooks/use-people";
+import type { PersonOut, PersonRole } from "@/lib/api/types";
 import { personRoleLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+const PERSON_ROLES: PersonRole[] = ["parent", "child", "other"];
+
+const fieldClassName =
+  "flex h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50";
+
+const textareaClassName =
+  "min-h-20 w-full rounded-lg border border-input bg-background px-2.5 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50";
 
 function PeopleLoading() {
   return (
@@ -60,7 +76,8 @@ function PeopleList({ people }: { people: PersonOut[] }) {
   if (people.length === 0) {
     return (
       <p className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No people yet. Household members will show up here once they’re added.
+        No people yet. Use Add person to create a household member, then assign
+        their devices.
       </p>
     );
   }
@@ -99,8 +116,150 @@ function PeopleList({ people }: { people: PersonOut[] }) {
   );
 }
 
+function AddPersonSheet({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const router = useRouter();
+  const create = useCreatePerson();
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<PersonRole>("child");
+  const [notes, setNotes] = useState("");
+
+  function resetForm() {
+    setName("");
+    setRole("child");
+    setNotes("");
+    create.reset();
+  }
+
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
+    if (!next) {
+      resetForm();
+    }
+  }
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+
+    const trimmedNotes = notes.trim();
+    create.mutate(
+      {
+        name: trimmedName,
+        role,
+        notes: trimmedNotes.length > 0 ? trimmedNotes : null,
+      },
+      {
+        onSuccess: (person) => {
+          handleOpenChange(false);
+          router.push(`/people?id=${encodeURIComponent(person.id)}`);
+        },
+      },
+    );
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Add person</SheetTitle>
+          <SheetDescription>
+            Create a household member so you can assign devices and attribute
+            activity.
+          </SheetDescription>
+        </SheetHeader>
+        <form
+          onSubmit={onSubmit}
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4"
+        >
+          <div className="space-y-1.5">
+            <label htmlFor="person-name" className="text-sm font-medium">
+              Name
+            </label>
+            <input
+              id="person-name"
+              className={fieldClassName}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Alex"
+              autoComplete="off"
+              required
+              disabled={create.isPending}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="person-role" className="text-sm font-medium">
+              Role
+            </label>
+            <select
+              id="person-role"
+              className={fieldClassName}
+              value={role}
+              onChange={(event) => setRole(event.target.value as PersonRole)}
+              disabled={create.isPending}
+            >
+              {PERSON_ROLES.map((value) => (
+                <option key={value} value={value}>
+                  {personRoleLabel(value)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="person-notes" className="text-sm font-medium">
+              Notes
+            </label>
+            <textarea
+              id="person-notes"
+              className={textareaClassName}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Optional notes"
+              disabled={create.isPending}
+            />
+          </div>
+
+          {create.isError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {create.error instanceof Error
+                ? create.error.message
+                : "Couldn’t create person"}
+            </p>
+          ) : null}
+
+          <div className="mt-auto flex flex-wrap gap-2 pt-2">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={create.isPending || name.trim().length === 0}
+            >
+              {create.isPending ? "Adding…" : "Add person"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={create.isPending}
+              onClick={() => handleOpenChange(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 function PeopleListView() {
   const { data, error, isLoading, isError, isFetching, refetch } = usePeople();
+  const [addOpen, setAddOpen] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -111,16 +270,28 @@ function PeopleListView() {
             Household members, their devices, and attributed activity.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void refetch()}
-          disabled={isFetching || isLoading}
-        >
-          <RefreshCw className={cn("size-3.5", isFetching && "animate-spin")} />
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="size-3.5" />
+            Add person
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void refetch()}
+            disabled={isFetching || isLoading}
+          >
+            <RefreshCw
+              className={cn("size-3.5", isFetching && "animate-spin")}
+            />
+            {isFetching ? "Refreshing…" : "Refresh"}
+          </Button>
+        </div>
       </div>
 
       {isLoading ? <PeopleLoading /> : null}
@@ -136,6 +307,8 @@ function PeopleListView() {
       ) : null}
 
       {data ? <PeopleList people={data.people ?? []} /> : null}
+
+      <AddPersonSheet open={addOpen} onOpenChange={setAddOpen} />
     </div>
   );
 }

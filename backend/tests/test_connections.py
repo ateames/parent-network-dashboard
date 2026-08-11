@@ -180,6 +180,36 @@ async def test_connections_api_and_setup_status(
 
 
 @pytest.mark.asyncio
+async def test_connections_put_unifi_token(
+    db_session: AsyncSession,
+    api_client: AsyncClient,
+) -> None:
+    _ = db_session
+
+    put = await api_client.put(
+        "/api/settings/connections",
+        json={
+            "unifi_url": "https://192.168.1.1",
+            "unifi_auth_method": "token",
+            "unifi_token": "super-secret-api-key",
+            "unifi_site": "default",
+            "unifi_verify_tls": False,
+        },
+    )
+    assert put.status_code == 200
+    body = put.json()
+    assert body["unifi_auth_method"] == "token"
+    assert body["unifi_token_configured"] is True
+    assert "unifi_token" not in body
+    assert body["unifi_url"] == "https://192.168.1.1"
+
+    got = await api_client.get("/api/settings/connections")
+    assert got.status_code == 200
+    assert got.json()["unifi_token_configured"] is True
+    assert "unifi_token" not in got.json()
+
+
+@pytest.mark.asyncio
 async def test_pihole_connection_test_mocked(
     db_session: AsyncSession,
     api_client: AsyncClient,

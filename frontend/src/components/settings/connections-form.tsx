@@ -35,6 +35,7 @@ type FormState = {
   unifi_auth_method: string;
   unifi_username: string;
   unifi_password: string;
+  unifi_token: string;
   unifi_site: string;
   unifi_verify_tls: boolean;
   dashboard_username: string;
@@ -51,6 +52,7 @@ function fromConnections(data: ConnectionsOut): FormState {
     unifi_auth_method: data.unifi_auth_method || "session",
     unifi_username: data.unifi_username || "",
     unifi_password: SECRET_PLACEHOLDER,
+    unifi_token: SECRET_PLACEHOLDER,
     unifi_site: data.unifi_site || "default",
     unifi_verify_tls: data.unifi_verify_tls,
     dashboard_username: data.dashboard_username || "admin",
@@ -123,6 +125,9 @@ export function ConnectionsForm({
     if (form!.unifi_password) {
       payload.unifi_password = form!.unifi_password;
     }
+    if (form!.unifi_token) {
+      payload.unifi_token = form!.unifi_token;
+    }
     if (showDashboardFields) {
       payload.dashboard_username = form!.dashboard_username.trim() || "admin";
       if (form!.dashboard_password) {
@@ -148,6 +153,7 @@ export function ConnectionsForm({
               ...prev,
               pihole_password: "",
               unifi_password: "",
+              unifi_token: "",
               dashboard_password: "",
             }
           : prev,
@@ -178,6 +184,7 @@ export function ConnectionsForm({
       auth_method: form!.unifi_auth_method,
       username: form!.unifi_username.trim(),
       password: form!.unifi_password || undefined,
+      token: form!.unifi_token || undefined,
       site: form!.unifi_site.trim() || "default",
       verify_tls: form!.unifi_verify_tls,
     });
@@ -345,15 +352,23 @@ export function ConnectionsForm({
         <h3 className="text-sm font-semibold">UniFi</h3>
         {showInstructions ? (
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>Create or use a local UniFi admin (or API key / token auth).</li>
             <li>
-              Prefer the controller LAN IP with{" "}
-              <code>https://…</code> and leave TLS verify off for self-signed
-              certs.
+              Prefer API key auth: create a key under UniFi OS{" "}
+              <strong>Control Plane → Integrations</strong>, then choose{" "}
+              <code>token</code> below.
             </li>
             <li>
-              Site is usually <code>default</code>. Exact menu labels vary by
-              UniFi OS version.
+              Use <code>https://&lt;gateway-lan-ip&gt;</code> (not{" "}
+              <code>http://</code>). Leave TLS verify off for self-signed certs.
+            </li>
+            <li>
+              Site can be <code>default</code>, the display name (for example{" "}
+              <code>Teames-house</code>), or the site UUID — token auth resolves
+              it via the Integration API.
+            </li>
+            <li>
+              Or use a local UniFi OS admin with session username/password
+              (not a Network “user”).
             </li>
             <li>Read-only: this app never changes UniFi settings.</li>
           </ul>
@@ -401,45 +416,74 @@ export function ConnectionsForm({
               }
             />
           </label>
-          <label className="space-y-1.5 text-sm">
-            <span className="font-medium">Username</span>
-            <input
-              className={fieldClassName}
-              value={form.unifi_username}
-              onChange={(event) =>
-                setForm((prev) =>
-                  prev
-                    ? { ...prev, unifi_username: event.target.value }
-                    : prev,
-                )
-              }
-              autoComplete="off"
-            />
-          </label>
-          <label className="space-y-1.5 text-sm">
-            <span className="font-medium">
-              Password
-              {data.unifi_password_configured ? " (set)" : ""}
-            </span>
-            <input
-              type="password"
-              className={fieldClassName}
-              value={form.unifi_password}
-              placeholder={
-                data.unifi_password_configured
-                  ? "Leave blank to keep"
-                  : "UniFi password"
-              }
-              onChange={(event) =>
-                setForm((prev) =>
-                  prev
-                    ? { ...prev, unifi_password: event.target.value }
-                    : prev,
-                )
-              }
-              autoComplete="off"
-            />
-          </label>
+          {form.unifi_auth_method === "token" ? (
+            <label className="space-y-1.5 text-sm sm:col-span-2">
+              <span className="font-medium">
+                API key
+                {data.unifi_token_configured ? " (set)" : ""}
+              </span>
+              <input
+                type="password"
+                className={fieldClassName}
+                value={form.unifi_token}
+                placeholder={
+                  data.unifi_token_configured
+                    ? "Leave blank to keep"
+                    : "UniFi API key"
+                }
+                onChange={(event) =>
+                  setForm((prev) =>
+                    prev
+                      ? { ...prev, unifi_token: event.target.value }
+                      : prev,
+                  )
+                }
+                autoComplete="off"
+              />
+            </label>
+          ) : (
+            <>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">Username</span>
+                <input
+                  className={fieldClassName}
+                  value={form.unifi_username}
+                  onChange={(event) =>
+                    setForm((prev) =>
+                      prev
+                        ? { ...prev, unifi_username: event.target.value }
+                        : prev,
+                    )
+                  }
+                  autoComplete="off"
+                />
+              </label>
+              <label className="space-y-1.5 text-sm">
+                <span className="font-medium">
+                  Password
+                  {data.unifi_password_configured ? " (set)" : ""}
+                </span>
+                <input
+                  type="password"
+                  className={fieldClassName}
+                  value={form.unifi_password}
+                  placeholder={
+                    data.unifi_password_configured
+                      ? "Leave blank to keep"
+                      : "UniFi password"
+                  }
+                  onChange={(event) =>
+                    setForm((prev) =>
+                      prev
+                        ? { ...prev, unifi_password: event.target.value }
+                        : prev,
+                    )
+                  }
+                  autoComplete="off"
+                />
+              </label>
+            </>
+          )}
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input
               type="checkbox"
