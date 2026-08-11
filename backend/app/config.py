@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     admin_password: str = "changeme"
     admin_token: str = "changeme"
 
+    # Encrypts connection secrets in Postgres (Pi-hole / UniFi / dashboard override).
+    # Any non-empty string works; empty falls back to admin_token for local/dev.
+    connections_secret: str = ""
+
     # Git-independent identity for /version (override at build/deploy time).
     app_version: str = "0.1.0"
     build_id: str = "dev"

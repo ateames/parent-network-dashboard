@@ -106,3 +106,104 @@ class ExpectedActivityScheduleListOut(BaseModel):
 class LocalSettingsOut(BaseModel):
     thresholds: ThresholdsOut
     schedules: list[ExpectedActivityScheduleOut]
+
+
+class ConnectionsOut(BaseModel):
+    """Public connection settings — secrets never included, only configured flags."""
+
+    pihole_url: str
+    pihole_auth_method: str
+    pihole_password_configured: bool
+    pihole_token_configured: bool
+    pihole_verify_tls: bool
+    unifi_url: str
+    unifi_auth_method: str
+    unifi_username: str | None = None
+    unifi_password_configured: bool
+    unifi_token_configured: bool
+    unifi_site: str
+    unifi_verify_tls: bool
+    dashboard_username: str | None = None
+    dashboard_password_configured: bool
+    setup_completed: bool
+    setup_completed_at: datetime | None = None
+    source: str
+    updated_at: datetime | None = None
+    syslog_port: int
+    syslog_enabled: bool
+
+
+class ConnectionsPutIn(BaseModel):
+    """Upsert connection settings. Omit secret fields or send sentinel to keep."""
+
+    pihole_url: str | None = Field(default=None, max_length=512)
+    pihole_auth_method: str | None = Field(default=None, max_length=32)
+    pihole_password: str | None = None
+    pihole_token: str | None = None
+    pihole_verify_tls: bool | None = None
+    unifi_url: str | None = Field(default=None, max_length=512)
+    unifi_auth_method: str | None = Field(default=None, max_length=32)
+    unifi_username: str | None = Field(default=None, max_length=255)
+    unifi_password: str | None = None
+    unifi_token: str | None = None
+    unifi_site: str | None = Field(default=None, max_length=64)
+    unifi_verify_tls: bool | None = None
+    dashboard_username: str | None = Field(default=None, max_length=255)
+    dashboard_password: str | None = None
+    mark_setup_complete: bool | None = None
+
+    @field_validator("pihole_auth_method")
+    @classmethod
+    def _pihole_auth(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if cleaned not in {"none", "password", "token"}:
+            raise ValueError("pihole_auth_method must be none, password, or token")
+        return cleaned
+
+    @field_validator("unifi_auth_method")
+    @classmethod
+    def _unifi_auth(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower()
+        if cleaned not in {"session", "password", "token", "none"}:
+            raise ValueError(
+                "unifi_auth_method must be session, password, token, or none"
+            )
+        return cleaned
+
+
+class ConnectionTestIn(BaseModel):
+    """Optional override credentials for a one-shot connection test."""
+
+    url: str | None = Field(default=None, max_length=512)
+    auth_method: str | None = Field(default=None, max_length=32)
+    password: str | None = None
+    token: str | None = None
+    username: str | None = Field(default=None, max_length=255)
+    site: str | None = Field(default=None, max_length=64)
+    verify_tls: bool | None = None
+
+
+class ConnectionTestOut(BaseModel):
+    ok: bool
+    message: str
+
+
+class SetupStatusOut(BaseModel):
+    setup_completed: bool
+    setup_completed_at: datetime | None = None
+    syslog_port: int
+    syslog_enabled: bool
+
+
+class DashboardVerifyIn(BaseModel):
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1)
+
+
+class DashboardVerifyOut(BaseModel):
+    ok: bool
+    username: str

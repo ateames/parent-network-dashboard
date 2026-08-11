@@ -1,7 +1,7 @@
 # Parent Network Dashboard — common commands
 #
 # Prerequisites: Docker with Compose v2 (`docker compose`).
-# First run:  cp infra/.env.example infra/.env
+# First run:  ./scripts/install.sh   (or: cp infra/.env.example infra/.env)
 
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file infra/.env
 BACKEND  := backend

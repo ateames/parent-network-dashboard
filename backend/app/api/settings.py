@@ -1,4 +1,4 @@
-"""Local settings HTTP endpoints (thresholds + expected-activity schedules)."""
+"""Local settings HTTP endpoints (thresholds, schedules, connections)."""
 
 from __future__ import annotations
 
@@ -11,14 +11,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import write_audit
 from app.config import settings
+from app.connection_store import (
+    get_connections_row,
+    load_connections_public,
+    upsert_connections,
+    verify_dashboard_credentials,
+)
+from app.connection_test import (
+    settings_from_test_payload,
+    test_pihole_connection,
+    test_unifi_connection,
+)
 from app.db import get_session
-from app.models.settings import THRESHOLDS_ROW_ID, ExpectedActivitySchedule
+from app.models.settings import (
+    CONNECTIONS_ROW_ID,
+    THRESHOLDS_ROW_ID,
+    ExpectedActivitySchedule,
+)
 from app.schemas.settings import (
+    ConnectionsOut,
+    ConnectionsPutIn,
+    ConnectionTestIn,
+    ConnectionTestOut,
+    DashboardVerifyIn,
+    DashboardVerifyOut,
     ExpectedActivityScheduleIn,
     ExpectedActivityScheduleListOut,
     ExpectedActivityScheduleOut,
     ExpectedActivitySchedulePatchIn,
     LocalSettingsOut,
+    SetupStatusOut,
     ThresholdsOut,
     ThresholdsPatchIn,
 )
@@ -40,6 +62,32 @@ def _actor() -> str:
 
 def _thresholds_out(data: dict) -> ThresholdsOut:
     return ThresholdsOut(**data)
+
+
+def _connections_out(data: dict) -> ConnectionsOut:
+    return ConnectionsOut(**data)
+
+
+def _audit_connections_snapshot(data: dict) -> dict:
+    """JSON-safe audit payload: no secrets, no raw datetimes."""
+    skip = {
+        "pihole_password_configured",
+        "pihole_token_configured",
+        "unifi_password_configured",
+        "unifi_token_configured",
+        "dashboard_password_configured",
+        "setup_completed_at",
+        "updated_at",
+    }
+    out: dict = {}
+    for key, value in data.items():
+        if key in skip:
+            continue
+        if isinstance(value, datetime):
+            out[key] = value.isoformat()
+        else:
+            out[key] = value
+    return out
 
 
 def _schedule_out(row: ExpectedActivitySchedule) -> ExpectedActivityScheduleOut:
@@ -99,6 +147,110 @@ async def update_thresholds(
     )
     await session.commit()
     return _thresholds_out(after)
+
+
+@router.get("/setup-status", response_model=SetupStatusOut)
+async def get_setup_status(session: SessionDep) -> SetupStatusOut:
+    row = await get_connections_row(session)
+    await session.commit()
+    return SetupStatusOut(
+        setup_completed=row is not None and row.setup_completed_at is not None,
+        setup_completed_at=row.setup_completed_at if row else None,
+        syslog_port=settings.unifi_syslog_port,
+        syslog_enabled=settings.unifi_syslog_enabled,
+    )
+
+
+@router.get("/connections", response_model=ConnectionsOut)
+async def get_connections(session: SessionDep) -> ConnectionsOut:
+    data = await load_connections_public(session)
+    await session.commit()
+    return _connections_out(data)
+
+
+@router.put("/connections", response_model=ConnectionsOut)
+async def put_connections(
+    body: ConnectionsPutIn,
+    session: SessionDep,
+) -> ConnectionsOut:
+    patch = body.model_dump(exclude_unset=True)
+    mark = patch.pop("mark_setup_complete", None)
+    if not patch and mark is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No connection fields to update",
+        )
+    before, after = await upsert_connections(
+        session,
+        patch,
+        mark_setup_complete=mark,
+    )
+    await write_audit(
+        session,
+        actor=_actor(),
+        action="connections.update",
+        entity_type="connection_settings",
+        entity_id=CONNECTIONS_ROW_ID,
+        before=_audit_connections_snapshot(before),
+        after=_audit_connections_snapshot(after),
+    )
+    await session.commit()
+    return _connections_out(after)
+
+
+@router.post("/connections/test/pihole", response_model=ConnectionTestOut)
+async def test_pihole(
+    body: ConnectionTestIn,
+    session: SessionDep,
+) -> ConnectionTestOut:
+    row = await get_connections_row(session)
+    cfg = settings_from_test_payload(
+        kind="pihole",
+        body=body.model_dump(exclude_unset=True),
+        row=row,
+    )
+    ok, message = await test_pihole_connection(cfg)
+    await session.commit()
+    return ConnectionTestOut(ok=ok, message=message)
+
+
+@router.post("/connections/test/unifi", response_model=ConnectionTestOut)
+async def test_unifi(
+    body: ConnectionTestIn,
+    session: SessionDep,
+) -> ConnectionTestOut:
+    row = await get_connections_row(session)
+    cfg = settings_from_test_payload(
+        kind="unifi",
+        body=body.model_dump(exclude_unset=True),
+        row=row,
+    )
+    ok, message = await test_unifi_connection(cfg)
+    await session.commit()
+    return ConnectionTestOut(ok=ok, message=message)
+
+
+@router.post("/dashboard/verify", response_model=DashboardVerifyOut)
+async def verify_dashboard(
+    body: DashboardVerifyIn,
+    session: SessionDep,
+) -> DashboardVerifyOut:
+    username = body.username.strip()
+    ok = await verify_dashboard_credentials(session, username, body.password)
+    if not ok:
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+    row = await get_connections_row(session)
+    resolved_username = (
+        row.dashboard_username
+        if row is not None and row.dashboard_username
+        else username
+    )
+    await session.commit()
+    return DashboardVerifyOut(ok=True, username=resolved_username)
 
 
 @router.get("/schedules", response_model=ExpectedActivityScheduleListOut)

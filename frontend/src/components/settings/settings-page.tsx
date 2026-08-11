@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { ConnectionsForm } from "@/components/settings/connections-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -522,9 +523,18 @@ export function SettingsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Local analysis thresholds and expected-activity schedules. Credentials
-          for Pi-hole/UniFi stay in server env — never in the browser.
+          Connections, analysis thresholds, and expected-activity schedules.
+          Pi-hole and UniFi credentials are stored encrypted on this host — never
+          in client bundles.
         </p>
+      </div>
+
+      <ConnectionsForm />
+
+      <Separator />
+
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold tracking-tight">Analysis</h2>
       </div>
 
       {settings.isLoading ? (

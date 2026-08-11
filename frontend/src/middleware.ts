@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/session";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+const PUBLIC_PATHS = new Set(["/login", "/setup"]);
+
+/** Proxy paths the setup wizard may call before login (proxy enforces setup gate). */
+const PUBLIC_PROXY_PREFIXES = [
+  "/api/proxy/api/settings/setup-status",
+  "/api/proxy/api/settings/connections",
+  "/api/proxy/api/settings/dashboard/verify",
+];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   if (pathname.startsWith("/api/auth/")) return true;
+  if (PUBLIC_PROXY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return true;
+  }
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   return false;

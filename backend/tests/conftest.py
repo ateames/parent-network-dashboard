@@ -55,6 +55,7 @@ _TRUNCATE_TABLES = (
     "ingest_batch",
     "source_health",
     "app_thresholds",
+    "connection_settings",
     "worker_heartbeat",
     "audit_log",
 )

@@ -82,8 +82,9 @@ IP addresses change and get reassigned. Device identity must be durable (**MAC /
 
 ## SECURITY
 
-- **No credentials or admin tokens in frontend/browser code.** The backend admin token is used only server-side. The Next.js app talks to the backend through a **server-side proxy route**.
-- The dashboard is protected by **local authentication**.
+- **No credentials or admin tokens in frontend/browser bundles.** The backend admin token is used only server-side. The Next.js app talks to the backend through a **server-side proxy route**.
+- Pi-hole / UniFi / optional dashboard passwords may be entered once via the setup wizard or Settings UI; they are stored **encrypted in Postgres** (or still via env fallback) and must never be returned to the client after save.
+- The dashboard is protected by **local authentication** (trusted home LAN).
 - Keep an **audit trail** of decisions and configuration state.
 
 ---

@@ -90,5 +90,6 @@ make up
 | `DASHBOARD_USERNAME` | Local UI login username |
 | `DASHBOARD_PASSWORD` | Local UI login password |
 | `DASHBOARD_SESSION_SECRET` | HMAC secret for the httpOnly session cookie |
+| `DASHBOARD_COOKIE_SECURE` | `false` for LAN HTTP; `true` only behind HTTPS |
 
 These are read only inside the Next.js server / middleware / route handlers.

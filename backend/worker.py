@@ -8,7 +8,8 @@ import sys
 
 from sqlalchemy import text
 
-from app.config import settings
+from app.config import Settings, settings
+from app.connection_store import resolve_ingest_settings_from_db
 from app.db import AsyncSessionLocal, engine
 from app.findings.engine import evaluate_and_persist
 from app.health.system_health import touch_worker_heartbeat
@@ -45,6 +46,14 @@ async def _poll_intervals() -> tuple[int, int]:
     return pihole, unifi
 
 
+async def _ingest_settings() -> Settings:
+    """Reload Pi-hole / UniFi connection settings each poll (DB overlays env)."""
+    async with AsyncSessionLocal() as session:
+        cfg = await resolve_ingest_settings_from_db(session)
+        await session.commit()
+    return cfg
+
+
 async def heartbeat_loop() -> None:
     while True:
         try:
@@ -63,7 +72,8 @@ async def pihole_poll_loop() -> None:
     while True:
         interval, _ = await _poll_intervals()
         try:
-            batch = await run_pihole_poll_once(since=since)
+            cfg = await _ingest_settings()
+            batch = await run_pihole_poll_once(cfg=cfg, since=since)
             logger.info(
                 "pihole ingest batch=%s records=%s status=%s interval=%ss",
                 batch.id,
@@ -83,7 +93,8 @@ async def unifi_poll_loop() -> None:
     while True:
         _, interval = await _poll_intervals()
         try:
-            batch = await run_unifi_poll_once()
+            cfg = await _ingest_settings()
+            batch = await run_unifi_poll_once(cfg=cfg)
             logger.info(
                 "unifi ingest batch=%s records=%s status=%s interval=%ss",
                 batch.id,

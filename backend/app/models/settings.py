@@ -15,6 +15,7 @@ from app.models.base import Base, UUIDPrimaryKeyMixin
 # Stable singleton IDs (also used as audit entity_id for thresholds).
 THRESHOLDS_ROW_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 WORKER_HEARTBEAT_ROW_ID = uuid.UUID("00000000-0000-4000-8000-000000000002")
+CONNECTIONS_ROW_ID = uuid.UUID("00000000-0000-4000-8000-000000000003")
 
 
 class AppThresholds(Base):
@@ -35,6 +36,51 @@ class AppThresholds(Base):
     pihole_poll_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     unifi_poll_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     baseline_z_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class ConnectionSettings(Base):
+    """Singleton row for Pi-hole / UniFi / optional dashboard credentials.
+
+    Secret columns store Fernet ciphertext (or NULL when unset). Non-secret
+    fields (URLs, auth methods, site) are plaintext. DB values override env
+    when present so the first-run wizard can configure ingest without editing
+    infra/.env.
+    """
+
+    __tablename__ = "connection_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=CONNECTIONS_ROW_ID,
+    )
+
+    pihole_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pihole_auth_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pihole_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pihole_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pihole_verify_tls: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    unifi_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    unifi_auth_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    unifi_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    unifi_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unifi_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unifi_site: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    unifi_verify_tls: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    dashboard_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dashboard_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    setup_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

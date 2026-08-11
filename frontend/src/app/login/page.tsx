@@ -100,6 +100,13 @@ function LoginForm() {
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? "Signing in…" : "Sign in"}
       </Button>
+
+      <p className="text-center text-xs text-muted-foreground">
+        First time on this Pi?{" "}
+        <a href="/setup" className="underline underline-offset-2">
+          Open setup wizard
+        </a>
+      </p>
     </form>
   );
 }

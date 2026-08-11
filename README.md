@@ -53,65 +53,70 @@ uname -m   # expect aarch64
 
 4. Optional but recommended — start Docker on boot and reduce SD-card wear later with a USB SSD for `/var/lib/docker` if you run the stack long-term.
 
-## Clone and configure
+## Install (recommended)
 
-On the Pi:
+On the Pi, after Docker is available (see above):
 
 ```bash
 git clone https://github.com/ateames/parent-network-dashboard.git parent-network-dashboard
 cd parent-network-dashboard
-cp infra/.env.example infra/.env
-nano infra/.env   # or: vim / code — edit secrets and LAN hosts
+./scripts/install.sh
 ```
 
-### Required secrets (change before LAN exposure)
+The script generates secrets in `infra/.env`, builds the stack, and prints:
 
-Edit `infra/.env`. Defaults are placeholders and are **not** safe on a shared network.
+- Setup wizard URL: `http://<pi-lan-ip>:3000/setup`
+- Initial dashboard username/password (shown once)
+
+Open the wizard on another device on your LAN. It walks through Pi-hole and UniFi credentials (stored encrypted in Postgres) and UniFi syslog instructions. You do **not** need to hand-edit Pi-hole/UniFi passwords in `.env` for a normal install.
+
+First build on a Pi can take several minutes (arm64 image builds from source).
+
+### Advanced / manual configure
+
+If you prefer not to use `install.sh`:
+
+```bash
+cp infra/.env.example infra/.env
+nano infra/.env   # set secrets; leave Pi-hole/UniFi blank for the wizard
+make up
+```
+
+Required infrastructure secrets in `infra/.env`:
 
 ```env
-# PostgreSQL
-POSTGRES_USER=parent
 POSTGRES_PASSWORD=<strong-db-password>
-POSTGRES_DB=parent_network
 DATABASE_URL=postgresql+asyncpg://parent:<strong-db-password>@db:5432/parent_network
-
-# API admin (server-side only; Next.js proxy uses ADMIN_TOKEN)
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<strong-password>
 ADMIN_TOKEN=<long-random-token>
-
-# Dashboard UI login (browser never sees ADMIN_TOKEN)
 DASHBOARD_USERNAME=admin
 DASHBOARD_PASSWORD=<strong-password>
 DASHBOARD_SESSION_SECRET=<long-random-string>
+DASHBOARD_COOKIE_SECURE=false
+CONNECTIONS_SECRET=<long-random-string>
 ```
 
-Generate random values on the Pi if helpful:
+Generate random values:
 
 ```bash
-openssl rand -hex 32   # ADMIN_TOKEN or DASHBOARD_SESSION_SECRET
+openssl rand -hex 32
 ```
 
 Details: [`docs/local-auth.md`](docs/local-auth.md).
 
-### Point ingest at your LAN hosts
+Optional env fallbacks for ingest (wizard/DB overrides these when set):
 
 ```env
-# Pi-hole (read-only)
-PIHOLE_URL=http://<pihole-lan-ip-or-hostname>
-PIHOLE_AUTH_METHOD=password          # none | password | token
-PIHOLE_PASSWORD=<pihole-web-password>
-# PIHOLE_TOKEN=                      # if using legacy token auth
-PIHOLE_VERIFY_TLS=false
-
-# UniFi Network Application / controller (read-only API)
-UNIFI_URL=https://<unifi-lan-ip-or-hostname>
-UNIFI_AUTH_METHOD=session            # session | token
-UNIFI_USERNAME=<local-unifi-user>
-UNIFI_PASSWORD=<password>
-# UNIFI_TOKEN=                       # if using API key / bearer
+PIHOLE_URL=http://<pihole-lan-ip>
+PIHOLE_AUTH_METHOD=password
+PIHOLE_PASSWORD=
+UNIFI_URL=https://<unifi-lan-ip>
+UNIFI_AUTH_METHOD=session
+UNIFI_USERNAME=
+UNIFI_PASSWORD=
 UNIFI_SITE=default
-UNIFI_VERIFY_TLS=false               # typical for local self-signed certs
+UNIFI_VERIFY_TLS=false
 ```
 
 Use LAN IPs if `.local` mDNS is unreliable from Docker. The worker only **reads** these APIs.
@@ -127,7 +132,7 @@ UNIFI_SYSLOG_PORT=5514
 UNIFI_SYSLOG_PROTOCOLS=udp,tcp
 ```
 
-In the UniFi UI, set remote syslog / SIEM destination to **this Pi’s LAN IP** and port **5514**. Step-by-step: [`docs/unifi-syslog.md`](docs/unifi-syslog.md).
+In the UniFi UI, set remote syslog / SIEM destination to **this Pi’s LAN IP** and port **5514**. The setup wizard also covers this. Step-by-step: [`docs/unifi-syslog.md`](docs/unifi-syslog.md).
 
 ### Published ports
 
@@ -140,9 +145,7 @@ In the UniFi UI, set remote syslog / SIEM destination to **this Pi’s LAN IP** 
 
 `BACKEND_URL=http://api:8000` is correct inside Compose — do not change it for normal Pi deploys.
 
-## Start the stack
-
-First build on a Pi can take several minutes (arm64 image builds).
+## Start / update the stack
 
 ```bash
 make up          # requires infra/.env; builds + starts db, api, worker, frontend
@@ -173,15 +176,19 @@ make migrate
    # example: 192.168.1.50
    ```
 
-2. From a phone/laptop on the **same LAN**, open:
+2. First boot — open the setup wizard from a phone/laptop on the **same LAN**:
+
+   ```
+   http://<pi-lan-ip>:3000/setup
+   ```
+
+3. After setup, sign in at:
 
    ```
    http://<pi-lan-ip>:3000/login
    ```
 
-   Example: `http://192.168.1.50:3000/login`
-
-3. Sign in with `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
+   Use the password printed by `install.sh`, or the family password you set in the wizard.
 
 4. Optional checks from the Pi itself:
 

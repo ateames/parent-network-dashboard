@@ -31,6 +31,7 @@ from app.models.raw import (
 )
 from app.models.settings import (
     AppThresholds,
+    ConnectionSettings,
     ExpectedActivitySchedule,
     WorkerHeartbeat,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "AppThresholds",
     "AuditLog",
     "Base",
+    "ConnectionSettings",
     "CorrelationStatus",
     "Device",
     "DeviceIdentifier",
@@ -96,6 +98,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "source_health",
         "audit_log",
         "app_thresholds",
+        "connection_settings",
         "expected_activity_schedule",
         "worker_heartbeat",
     }
