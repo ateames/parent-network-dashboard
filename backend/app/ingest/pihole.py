@@ -65,8 +65,25 @@ class PiholeClientError(RuntimeError):
     """Raised when a read-only Pi-hole API call fails."""
 
 
+def pihole_connection_key(cfg: Settings) -> tuple[object, ...]:
+    """Identity of Pi-hole connection settings that require a fresh client/SID."""
+    return (
+        cfg.pihole_url.rstrip("/"),
+        cfg.pihole_auth_method.strip().lower(),
+        cfg.pihole_password,
+        cfg.pihole_token,
+        cfg.pihole_verify_tls,
+        cfg.pihole_queries_path,
+        cfg.pihole_auth_path,
+    )
+
+
 class PiholeClient:
-    """httpx client for Pi-hole query reads only — never writes config."""
+    """httpx client for Pi-hole query reads only — never writes config.
+
+    Pi-hole v6 sessions are scarce (``webserver.api.max_sessions``). Reuse one
+    SID across calls; only re-login on demand or after 401; logout on close.
+    """
 
     def __init__(
         self,
@@ -83,7 +100,12 @@ class PiholeClient:
         )
         self._sid: str | None = None
 
+    @property
+    def sid(self) -> str | None:
+        return self._sid
+
     async def aclose(self) -> None:
+        await self.logout()
         if self._owns_client:
             await self._http.aclose()
 
@@ -105,8 +127,26 @@ class PiholeClient:
             return path
         return path if path.startswith("/") else f"/{path}"
 
-    async def authenticate(self) -> None:
-        method = self._cfg.pihole_auth_method.strip().lower()
+    def _auth_method(self) -> str:
+        return self._cfg.pihole_auth_method.strip().lower()
+
+    async def logout(self) -> None:
+        """Release the Pi-hole API seat (DELETE /api/auth). Best-effort."""
+        sid = self._sid
+        if not sid:
+            return
+        self._sid = None
+        try:
+            await self._http.delete(
+                self._auth_url(),
+                headers={"X-FTL-SID": sid, "sid": sid},
+                params={"sid": sid},
+            )
+        except Exception:
+            logger.debug("Pi-hole logout failed", exc_info=True)
+
+    async def authenticate(self, *, force: bool = False) -> None:
+        method = self._auth_method()
         if method in {"none", ""}:
             self._sid = None
             return
@@ -122,6 +162,10 @@ class PiholeClient:
                 # Open / passwordless Pi-hole — skip SID login.
                 self._sid = None
                 return
+            if self._sid and not force:
+                return
+            if force and self._sid:
+                await self.logout()
             response = await self._http.post(
                 self._auth_url(),
                 json={"password": self._cfg.pihole_password},
@@ -144,8 +188,7 @@ class PiholeClient:
         raise PiholeClientError(f"Unknown PIHOLE_AUTH_METHOD: {method!r}")
 
     def _auth_params(self) -> dict[str, str]:
-        method = self._cfg.pihole_auth_method.strip().lower()
-        if method == "token":
+        if self._auth_method() == "token":
             return {"auth": self._cfg.pihole_token}
         return {}
 
@@ -153,6 +196,24 @@ class PiholeClient:
         if self._sid:
             return {"X-FTL-SID": self._sid, "sid": self._sid}
         return {}
+
+    async def _get_queries(
+        self,
+        *,
+        length: int | None,
+        since: float | None,
+    ) -> httpx.Response:
+        params: dict[str, str | int | float] = {
+            "length": length if length is not None else self._cfg.pihole_query_length,
+        }
+        params.update(self._auth_params())
+        if since is not None:
+            params["from"] = since
+        return await self._http.get(
+            self._queries_url(),
+            params=params,
+            headers=self._auth_headers(),
+        )
 
     async def fetch_queries(
         self,
@@ -162,18 +223,12 @@ class PiholeClient:
     ) -> list[dict[str, Any]]:
         """GET recent queries. Read-only — never mutates Pi-hole config."""
         await self.authenticate()
-        params: dict[str, str | int | float] = {
-            "length": length if length is not None else self._cfg.pihole_query_length,
-        }
-        params.update(self._auth_params())
-        if since is not None:
-            params["from"] = since
-
-        response = await self._http.get(
-            self._queries_url(),
-            params=params,
-            headers=self._auth_headers(),
-        )
+        response = await self._get_queries(length=length, since=since)
+        # Expired SID: free the seat if possible, mint one new session, retry once.
+        if response.status_code == 401 and self._auth_method() == "password":
+            await self.logout()
+            await self.authenticate(force=True)
+            response = await self._get_queries(length=length, since=since)
         if response.status_code >= 400:
             raise PiholeClientError(
                 f"Pi-hole queries failed: HTTP {response.status_code}"
@@ -482,12 +537,15 @@ async def replay_fixture(
 async def run_poll_once(
     *,
     cfg: Settings | None = None,
+    client: PiholeClient | None = None,
     since: float | None = None,
 ) -> IngestBatch:
     cfg = cfg or settings
     async with AsyncSessionLocal() as session:
         try:
-            return await ingest_live(session, cfg=cfg, since=since, commit=True)
+            return await ingest_live(
+                session, cfg=cfg, client=client, since=since, commit=True
+            )
         except Exception:
             await session.rollback()
             raise

@@ -13,7 +13,11 @@ from app.connection_store import resolve_ingest_settings_from_db
 from app.db import AsyncSessionLocal, engine
 from app.findings.engine import evaluate_and_persist
 from app.health.system_health import touch_worker_heartbeat
-from app.ingest.pihole import run_poll_once as run_pihole_poll_once
+from app.ingest.pihole import (
+    PiholeClient,
+    pihole_connection_key,
+    run_poll_once as run_pihole_poll_once,
+)
 from app.ingest.unifi import run_poll_once as run_unifi_poll_once
 from app.ingest.unifi_syslog import run_syslog_listener, syslog_health_loop
 from app.settings_store import load_thresholds
@@ -67,25 +71,43 @@ async def heartbeat_loop() -> None:
 
 
 async def pihole_poll_loop() -> None:
-    """Poll Pi-hole on a configurable interval; advance `since` after success."""
+    """Poll Pi-hole on a configurable interval; advance `since` after success.
+
+    Reuses one ``PiholeClient`` / SID across polls so we do not exhaust
+    Pi-hole's ``webserver.api.max_sessions`` seats (HTTP 429).
+    """
     since: float | None = None
-    while True:
-        interval, _ = await _poll_intervals()
-        try:
-            cfg = await _ingest_settings()
-            batch = await run_pihole_poll_once(cfg=cfg, since=since)
-            logger.info(
-                "pihole ingest batch=%s records=%s status=%s interval=%ss",
-                batch.id,
-                batch.record_count,
-                batch.status.value,
-                interval,
-            )
-            # Next poll asks for queries after this run started (unix seconds).
-            since = batch.started_at.timestamp()
-        except Exception:
-            logger.exception("pihole ingest failed")
-        await asyncio.sleep(interval)
+    client: PiholeClient | None = None
+    conn_key: tuple[object, ...] | None = None
+    try:
+        while True:
+            interval, _ = await _poll_intervals()
+            try:
+                cfg = await _ingest_settings()
+                key = pihole_connection_key(cfg)
+                if client is None or key != conn_key:
+                    if client is not None:
+                        await client.aclose()
+                    client = PiholeClient(cfg)
+                    conn_key = key
+                batch = await run_pihole_poll_once(
+                    cfg=cfg, client=client, since=since
+                )
+                logger.info(
+                    "pihole ingest batch=%s records=%s status=%s interval=%ss",
+                    batch.id,
+                    batch.record_count,
+                    batch.status.value,
+                    interval,
+                )
+                # Next poll asks for queries after this run started (unix seconds).
+                since = batch.started_at.timestamp()
+            except Exception:
+                logger.exception("pihole ingest failed")
+            await asyncio.sleep(interval)
+    finally:
+        if client is not None:
+            await client.aclose()
 
 
 async def unifi_poll_loop() -> None:

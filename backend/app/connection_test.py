@@ -59,10 +59,10 @@ def settings_from_test_payload(
 
 
 async def test_pihole_connection(cfg: Settings) -> tuple[bool, str]:
+    # One-shot probe: fetch_queries authenticates as needed; aclose logs out
+    # so the temporary SID does not occupy a Pi-hole API seat.
     client = PiholeClient(cfg)
     try:
-        await client.authenticate()
-        # Light probe: fetch a small query window (read-only).
         await client.fetch_queries(length=1)
         return True, "Connected to Pi-hole and fetched queries"
     except PiholeClientError as exc:
