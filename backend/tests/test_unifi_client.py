@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import json
+
 import httpx
 import pytest
 
@@ -9,11 +12,23 @@ from app.config import Settings
 from app.ingest.unifi import (
     UnifiClient,
     UnifiClientError,
+    csrf_token_from_jwt,
+    csrf_token_from_response,
     format_unifi_http_error,
     map_integration_client,
     resolve_integration_site_id,
     unifi_os_network_path,
 )
+
+
+def _unifi_os_token_jwt(*, csrf: str) -> str:
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"csrfToken": csrf}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    return f"{header}.{payload}.sig"
 
 
 def test_unifi_os_network_path_rewrites_classic_api() -> None:
@@ -49,6 +64,25 @@ def test_resolve_integration_site_id_matches_name_and_internal() -> None:
         == "11111111-1111-1111-1111-111111111111"
     )
     assert resolve_integration_site_id(sites, "missing") is None
+
+
+def test_csrf_token_from_jwt_reads_claim() -> None:
+    token = _unifi_os_token_jwt(csrf="csrf-from-jwt")
+    assert csrf_token_from_jwt(token) == "csrf-from-jwt"
+    assert csrf_token_from_jwt("not-a-jwt") is None
+    assert csrf_token_from_jwt("a.!!!") is None
+
+
+def test_csrf_token_from_response_prefers_updated_header() -> None:
+    response = httpx.Response(
+        200,
+        headers={
+            "x-csrf-token": "old-csrf",
+            "x-updated-csrf-token": "rotated-csrf",
+        },
+        json={"meta": {"rc": "ok"}},
+    )
+    assert csrf_token_from_response(response) == "rotated-csrf"
 
 
 def test_format_unifi_http_error_includes_body() -> None:
@@ -128,7 +162,9 @@ async def test_token_uses_integration_api_and_resolves_site_name() -> None:
                     ],
                 },
             )
-        return httpx.Response(500, json={"error": "unexpected", "path": request.url.path})
+        return httpx.Response(
+            500, json={"error": "unexpected", "path": request.url.path}
+        )
 
     transport = httpx.MockTransport(handler)
     cfg = Settings(
@@ -160,7 +196,11 @@ async def test_token_401_surfaces_response_body() -> None:
         assert request.headers.get("Accept") == "application/json"
         return httpx.Response(
             401,
-            json={"code": "unauthorized", "httpStatusCode": 401, "message": "unauthorized"},
+            json={
+                "code": "unauthorized",
+                "httpStatusCode": 401,
+                "message": "unauthorized",
+            },
         )
 
     transport = httpx.MockTransport(handler)
@@ -270,3 +310,114 @@ async def test_token_missing_raises() -> None:
     with pytest.raises(UnifiClientError, match="UNIFI_TOKEN"):
         await client.authenticate()
     await client.aclose()
+
+
+def _session_cfg() -> Settings:
+    return Settings(
+        unifi_url="https://192.168.1.1",
+        unifi_auth_method="session",
+        unifi_username="admin",
+        unifi_password="secret",
+        unifi_login_path="/api/login",
+        unifi_site="default",
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_posts_after_get_404() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "POST" and request.url.path == "/api/login":
+            return httpx.Response(
+                200,
+                json={"meta": {"rc": "ok"}},
+                headers={"x-csrf-token": "csrf-login"},
+            )
+        if request.method == "GET" and request.url.path.endswith("/stat/event"):
+            return httpx.Response(
+                404,
+                json={"meta": {"rc": "error", "msg": "api.err.NotFound"}, "data": []},
+            )
+        if request.method == "POST" and request.url.path.endswith("/stat/event"):
+            body = json.loads(request.content.decode())
+            assert body["_limit"] == 100
+            assert body["_sort"] == "-time"
+            assert request.headers.get("X-CSRF-Token") == "csrf-login"
+            return httpx.Response(
+                200,
+                json={
+                    "meta": {"rc": "ok"},
+                    "data": [{"key": "EVT_WU_Connected", "msg": "connected"}],
+                },
+            )
+        return httpx.Response(
+            500, json={"error": "unexpected", "path": request.url.path}
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://192.168.1.1"
+    ) as http:
+        client = UnifiClient(_session_cfg(), client=http)
+        events = await client.fetch_events()
+
+    assert len(events) == 1
+    assert events[0]["key"] == "EVT_WU_Connected"
+    assert ("GET", "/api/s/default/stat/event") in calls
+    assert ("POST", "/api/s/default/stat/event") in calls
+
+
+@pytest.mark.asyncio
+async def test_fetch_events_returns_empty_when_route_missing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/login":
+            return httpx.Response(200, json={"meta": {"rc": "ok"}})
+        if request.url.path.endswith("/stat/event"):
+            return httpx.Response(
+                404,
+                json={"meta": {"rc": "error", "msg": "api.err.NotFound"}, "data": []},
+            )
+        return httpx.Response(500, json={"path": request.url.path})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://192.168.1.1"
+    ) as http:
+        client = UnifiClient(_session_cfg(), client=http)
+        events = await client.fetch_events()
+
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_snapshot_succeeds_when_events_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/login":
+            return httpx.Response(200, json={"meta": {"rc": "ok"}})
+        if request.url.path.endswith("/stat/event"):
+            return httpx.Response(
+                404,
+                json={"meta": {"rc": "error", "msg": "api.err.NotFound"}, "data": []},
+            )
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "meta": {"rc": "ok"},
+                    "data": [{"mac": "aa:bb:cc:dd:ee:01", "hostname": "ipad"}],
+                },
+            )
+        return httpx.Response(500, json={"path": request.url.path})
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://192.168.1.1"
+    ) as http:
+        client = UnifiClient(_session_cfg(), client=http)
+        snapshot = await client.fetch_snapshot()
+
+    assert len(snapshot.clients) == 1
+    assert snapshot.clients[0]["mac"] == "aa:bb:cc:dd:ee:01"
+    assert snapshot.events == []

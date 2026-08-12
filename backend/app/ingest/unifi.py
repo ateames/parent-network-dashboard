@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -72,6 +73,8 @@ class UnifiControlUnsupportedError(UnifiClientError):
 
 
 _UNIFI_OS_RETRY_STATUSES = frozenset({401, 403, 404})
+# GET /stat/event is gone or POST-only on Network 9/10; treat these as "no events".
+_EVENTS_OPTIONAL_STATUSES = frozenset({400, 404})
 _CLASSIC_LOGIN_PATH = "/api/login"
 _UNIFI_OS_LOGIN_PATH = "/api/auth/login"
 _UNIFI_OS_NETWORK_PREFIX = "/proxy/network"
@@ -79,6 +82,8 @@ _UNIFI_OS_NETWORK_PREFIX = "/proxy/network"
 _INTEGRATION_API_PREFIX = "/proxy/network/integration/v1"
 _INTEGRATION_PAGE_LIMIT = 100
 _HTTP_ERROR_BODY_MAX = 500
+_CSRF_RESPONSE_HEADERS = ("x-updated-csrf-token", "x-csrf-token")
+_CSRF_COOKIE_NAMES = ("csrf_token", "X-CSRF-Token")
 
 
 def format_unifi_http_error(prefix: str, response: httpx.Response) -> str:
@@ -89,6 +94,40 @@ def format_unifi_http_error(prefix: str, response: httpx.Response) -> str:
     if body:
         return f"{prefix}: HTTP {response.status_code} — {body}"
     return f"{prefix}: HTTP {response.status_code}"
+
+
+def csrf_token_from_jwt(token: str) -> str | None:
+    """Read UniFi OS ``csrfToken`` from an unverified TOKEN JWT payload."""
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    padding = "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload + padding)
+        data = json.loads(decoded)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    csrf = data.get("csrfToken") or data.get("csrf_token")
+    if csrf is None:
+        return None
+    text = str(csrf).strip()
+    return text or None
+
+
+def csrf_token_from_response(response: httpx.Response) -> str | None:
+    """CSRF from UniFi OS response headers or classic CSRF cookies."""
+    for name in _CSRF_RESPONSE_HEADERS:
+        value = response.headers.get(name)
+        if value and value.strip():
+            return value.strip()
+    for name in _CSRF_COOKIE_NAMES:
+        value = response.cookies.get(name)
+        if value and str(value).strip():
+            return str(value).strip()
+    return None
 
 
 def unifi_os_network_path(path: str) -> str | None:
@@ -197,7 +236,8 @@ class UnifiClient:
         self._cfg = cfg or settings
         self._owns_client = client is None
         base_url = self._cfg.unifi_url.rstrip("/")
-        # UniFi OS consoles serve the API over HTTPS; http often 401s or redirects oddly.
+        # UniFi OS consoles serve the API over HTTPS; http often 401s
+        # or redirects oddly.
         if base_url.startswith("http://"):
             https_url = "https://" + base_url.removeprefix("http://")
             logger.info("UniFi URL used http://; upgrading to %s", https_url)
@@ -212,6 +252,8 @@ class UnifiClient:
         # After a successful UniFi OS path retry, prefer proxy paths for later GETs.
         self._prefer_unifi_os_paths = False
         self._integration_site_id: str | None = None
+        # UniFi OS POSTs require X-CSRF-Token; GETs work with the session cookie alone.
+        self._csrf_token: str | None = None
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -240,6 +282,44 @@ class UnifiClient:
                 return proxied
         return path
 
+    def _candidate_paths(self, path: str) -> list[str]:
+        """Classic path plus UniFi OS /proxy/network variant when applicable."""
+        paths = [path]
+        proxied = unifi_os_network_path(path)
+        if proxied is not None:
+            paths.append(proxied)
+        return paths
+
+    def _session_origin(self) -> str | None:
+        method = self._cfg.unifi_auth_method.strip().lower()
+        if method not in {"session", "password"}:
+            return None
+        base = str(self._http.base_url).rstrip("/") or self._cfg.unifi_url.rstrip("/")
+        if base.startswith("http://"):
+            base = "https://" + base.removeprefix("http://")
+        return base or None
+
+    def _csrf_from_cookie_jar(self) -> str | None:
+        for name in _CSRF_COOKIE_NAMES:
+            value = self._http.cookies.get(name)
+            if value and str(value).strip():
+                return str(value).strip()
+        token = self._http.cookies.get("TOKEN")
+        if token:
+            return csrf_token_from_jwt(token)
+        return None
+
+    def _remember_csrf(self, response: httpx.Response) -> None:
+        captured = csrf_token_from_response(response)
+        if captured:
+            self._csrf_token = captured
+            return
+        if self._csrf_token:
+            return
+        jar_csrf = self._csrf_from_cookie_jar()
+        if jar_csrf:
+            self._csrf_token = jar_csrf
+
     def _auth_headers(self) -> dict[str, str]:
         method = self._cfg.unifi_auth_method.strip().lower()
         headers: dict[str, str] = {"Accept": "application/json"}
@@ -251,13 +331,35 @@ class UnifiClient:
                     headers["Authorization"] = token
                 else:
                     headers["X-API-KEY"] = token
-        # Classic controllers may require CSRF from the cookie jar.
-        csrf = self._http.cookies.get("csrf_token") or self._http.cookies.get(
-            "X-CSRF-Token"
-        )
+        csrf = self._csrf_token or self._csrf_from_cookie_jar()
         if csrf:
             headers["X-CSRF-Token"] = csrf
+        origin = self._session_origin()
+        if origin:
+            headers.setdefault("Origin", origin)
+            headers.setdefault("Referer", f"{origin}/")
         return headers
+
+    async def _send(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Mapping[str, Any] | None = None,
+        json_body: Any = None,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        headers = dict(self._auth_headers())
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs: dict[str, Any] = {"headers": headers}
+        if params is not None:
+            kwargs["params"] = params
+        if json_body is not None:
+            kwargs["json"] = json_body
+        response = await self._http.request(method, url, **kwargs)
+        self._remember_csrf(response)
+        return response
 
     async def authenticate(self) -> None:
         method = self._cfg.unifi_auth_method.strip().lower()
@@ -281,11 +383,7 @@ class UnifiClient:
                 "username": self._cfg.unifi_username,
                 "password": self._cfg.unifi_password,
             }
-            response = await self._http.post(
-                login_path,
-                json=payload,
-                headers=self._auth_headers(),
-            )
+            response = await self._send("POST", login_path, json_body=payload)
             if (
                 response.status_code in _UNIFI_OS_RETRY_STATUSES
                 and login_path.rstrip("/") == _CLASSIC_LOGIN_PATH
@@ -294,10 +392,8 @@ class UnifiClient:
                     "UniFi classic login returned HTTP %s; retrying UniFi OS login",
                     response.status_code,
                 )
-                response = await self._http.post(
-                    _UNIFI_OS_LOGIN_PATH,
-                    json=payload,
-                    headers=self._auth_headers(),
+                response = await self._send(
+                    "POST", _UNIFI_OS_LOGIN_PATH, json_body=payload
                 )
                 if response.status_code < 400:
                     self._prefer_unifi_os_paths = True
@@ -343,10 +439,10 @@ class UnifiClient:
         offset = 0
         items: list[dict[str, Any]] = []
         while True:
-            response = await self._http.get(
+            response = await self._send(
+                "GET",
                 path,
                 params={"offset": offset, "limit": _INTEGRATION_PAGE_LIMIT},
-                headers=self._auth_headers(),
             )
             if response.status_code >= 400:
                 raise UnifiClientError(
@@ -378,7 +474,7 @@ class UnifiClient:
         if not self._authenticated:
             await self.authenticate()
         path = self._resolve_get_path(path_template)
-        response = await self._http.get(path, headers=self._auth_headers())
+        response = await self._send("GET", path)
         if response.status_code in _UNIFI_OS_RETRY_STATUSES:
             proxied = unifi_os_network_path(path)
             if proxied is not None:
@@ -388,12 +484,9 @@ class UnifiClient:
                     response.status_code,
                     proxied,
                 )
-                response = await self._http.get(
-                    proxied, headers=self._auth_headers()
-                )
+                response = await self._send("GET", proxied)
                 if response.status_code < 400:
                     self._prefer_unifi_os_paths = True
-                    path = proxied
         if response.status_code >= 400:
             raise UnifiClientError(
                 format_unifi_http_error(
@@ -441,42 +534,75 @@ class UnifiClient:
         return await self._get_data(self._cfg.unifi_networks_path)
 
     async def fetch_events(self, *, limit: int | None = None) -> list[dict[str, Any]]:
-        """GET recent controller events. Read-only."""
+        """Read recent controller events. Missing routes do not fail ingest.
+
+        Classic GET ``/stat/event`` 404s on many UniFi Network 9/10 consoles.
+        POST with a JSON body still works on some 9.x builds; Network 10.4+ has
+        no events route at all. Syslog covers security events either way.
+        """
         if self._uses_integration_api():
             # Integration API has no classic event feed; syslog covers security events.
             return []
         if not self._authenticated:
             await self.authenticate()
-        params: dict[str, int] = {
-            "_limit": limit if limit is not None else self._cfg.unifi_events_limit,
-        }
+        event_limit = limit if limit is not None else self._cfg.unifi_events_limit
+        params: dict[str, int] = {"_limit": event_limit}
+        post_body = {"_limit": event_limit, "_sort": "-time"}
         path = self._resolve_get_path(self._cfg.unifi_events_path)
-        response = await self._http.get(
-            path,
-            params=params,
-            headers=self._auth_headers(),
-        )
-        if response.status_code in _UNIFI_OS_RETRY_STATUSES:
-            proxied = unifi_os_network_path(path)
-            if proxied is not None:
-                logger.info(
-                    "UniFi events GET %s returned HTTP %s; retrying %s",
-                    path,
-                    response.status_code,
-                    proxied,
-                )
-                response = await self._http.get(
-                    proxied,
-                    params=params,
-                    headers=self._auth_headers(),
-                )
-                if response.status_code < 400:
+        candidates = self._candidate_paths(path)
+        last: httpx.Response | None = None
+
+        for url in candidates:
+            response = await self._send("GET", url, params=params)
+            last = response
+            if response.status_code < 400:
+                if url != path:
                     self._prefer_unifi_os_paths = True
-        if response.status_code >= 400:
-            raise UnifiClientError(
-                format_unifi_http_error("UniFi events failed", response)
+                return extract_data_list(response.json())
+            if (
+                response.status_code not in _UNIFI_OS_RETRY_STATUSES
+                and response.status_code not in _EVENTS_OPTIONAL_STATUSES
+            ):
+                raise UnifiClientError(
+                    format_unifi_http_error("UniFi events failed", response)
+                )
+
+        if last is not None and last.status_code in _EVENTS_OPTIONAL_STATUSES:
+            logger.info(
+                "UniFi events GET returned HTTP %s; retrying POST %s",
+                last.status_code,
+                candidates,
             )
-        return extract_data_list(response.json())
+            post_headers = {"Content-Type": "application/json"}
+            for url in candidates:
+                response = await self._send(
+                    "POST",
+                    url,
+                    json_body=post_body,
+                    extra_headers=post_headers,
+                )
+                last = response
+                if response.status_code < 400:
+                    if url != path:
+                        self._prefer_unifi_os_paths = True
+                    return extract_data_list(response.json())
+                if (
+                    response.status_code not in _UNIFI_OS_RETRY_STATUSES
+                    and response.status_code not in _EVENTS_OPTIONAL_STATUSES
+                ):
+                    raise UnifiClientError(
+                        format_unifi_http_error("UniFi events failed", response)
+                    )
+            if last.status_code in _EVENTS_OPTIONAL_STATUSES:
+                logger.warning(
+                    "UniFi classic events API unavailable (HTTP %s); "
+                    "continuing without events (syslog covers security events)",
+                    last.status_code,
+                )
+                return []
+
+        assert last is not None
+        raise UnifiClientError(format_unifi_http_error("UniFi events failed", last))
 
     async def fetch_snapshot(self) -> UnifiSnapshot:
         """Pull clients, devices, networks, and events in one read-only cycle."""
@@ -510,11 +636,10 @@ class UnifiClient:
             await self.authenticate()
         path = self._resolve_get_path(self._cfg.unifi_stamgr_path)
         payload = {"cmd": cmd, "mac": normalized}
-        headers = {
-            **self._auth_headers(),
-            "Content-Type": "application/json",
-        }
-        response = await self._http.post(path, json=payload, headers=headers)
+        post_headers = {"Content-Type": "application/json"}
+        response = await self._send(
+            "POST", path, json_body=payload, extra_headers=post_headers
+        )
         if response.status_code in _UNIFI_OS_RETRY_STATUSES:
             proxied = unifi_os_network_path(path)
             if proxied is not None:
@@ -524,12 +649,14 @@ class UnifiClient:
                     response.status_code,
                     proxied,
                 )
-                response = await self._http.post(
-                    proxied, json=payload, headers=headers
+                response = await self._send(
+                    "POST",
+                    proxied,
+                    json_body=payload,
+                    extra_headers=post_headers,
                 )
                 if response.status_code < 400:
                     self._prefer_unifi_os_paths = True
-                    path = proxied
         if response.status_code >= 400:
             raise UnifiClientError(
                 format_unifi_http_error(f"UniFi stamgr {cmd} failed", response)
