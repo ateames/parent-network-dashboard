@@ -47,9 +47,15 @@ They share models and the database but run as **separate containers**.
 
 ## ARCHITECTURE PRINCIPLES
 
-### Read-only ingestion
+### Read-only ingestion (with narrow UniFi control)
 
-Ingestion is **READ-ONLY**. Nothing in this project writes to Pi-hole or UniFi.
+Ingestion (API polling and UniFi syslog) is **READ-ONLY**.
+
+**Pi-hole:** never write config or lists.
+
+**UniFi:** the only allowed writes are client `block-sta` / `unblock-sta` (Disable / Re-enable Internet), initiated by an authenticated parent action or the worker when a timed restriction expires. No other UniFi settings may be changed. Fail closed: never claim a device is blocked unless the controller accepted the command.
+
+Device internet control requires classic **session** auth (`UNIFI_AUTH_METHOD=session`). Token / Integrations API mode is read-only and cannot issue stamgr commands.
 
 ### Local-only data
 

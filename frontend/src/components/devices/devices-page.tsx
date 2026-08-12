@@ -130,6 +130,14 @@ function DeviceList({ devices }: { devices: DeviceSummaryOut[] }) {
                     Unknown
                   </Badge>
                 ) : null}
+                {device.internet_restriction?.status === "active" ? (
+                  <Badge
+                    variant="outline"
+                    className="border-destructive/40 bg-destructive/10 text-destructive"
+                  >
+                    Internet disabled
+                  </Badge>
+                ) : null}
                 {!device.assigned_person ? (
                   <Badge variant="outline">Unassigned</Badge>
                 ) : null}

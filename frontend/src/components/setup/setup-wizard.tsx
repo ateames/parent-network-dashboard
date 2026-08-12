@@ -62,9 +62,9 @@ function WelcomeStep({
           Set up Parent Network Dashboard
         </h1>
         <p className="text-sm text-muted-foreground">
-          This wizard configures read-only connections to Pi-hole and UniFi on
-          your home LAN. Household data stays on this device — nothing is sent
-          to the cloud.
+          This wizard configures Pi-hole and UniFi connections on your home
+          LAN. Household data stays on this device — nothing is sent to the
+          cloud. Use UniFi session auth if you want Disable Internet controls.
         </p>
       </div>
       <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">

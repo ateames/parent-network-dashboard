@@ -24,6 +24,7 @@ from app.models.enums import IdentifierKind
 
 if TYPE_CHECKING:
     from app.models.people import PersonDevice
+    from app.models.restrictions import DeviceRestriction
 
 identifier_kind_enum = ENUM(
     IdentifierKind,
@@ -57,6 +58,10 @@ class Device(UUIDPrimaryKeyMixin, LogicVersionMixin, Base):
         cascade="all, delete-orphan",
     )
     person_links: Mapped[list[PersonDevice]] = relationship(back_populates="device")
+    restrictions: Mapped[list[DeviceRestriction]] = relationship(
+        back_populates="device",
+        cascade="all, delete-orphan",
+    )
 
 
 class DeviceIdentifier(UUIDPrimaryKeyMixin, LogicVersionMixin, Base):

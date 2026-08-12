@@ -50,6 +50,11 @@ export type AssignedPersonOut = components["schemas"]["AssignedPersonOut"];
 export type DeviceIdentifierOut = PreferOutput<"DeviceIdentifierOut">;
 export type IpAssignmentOut = components["schemas"]["IpAssignmentOut"];
 export type IdentifierKind = components["schemas"]["IdentifierKind"];
+export type InternetRestrictionOut =
+  components["schemas"]["InternetRestrictionOut"];
+export type InternetRestrictionCreateIn =
+  components["schemas"]["InternetRestrictionCreateIn"];
+export type RestrictionStatus = components["schemas"]["RestrictionStatus"];
 
 export type ActivitySummaryOut = components["schemas"]["ActivitySummaryOut"];
 export type DeviationOut = components["schemas"]["DeviationOut"];

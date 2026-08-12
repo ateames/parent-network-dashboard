@@ -353,9 +353,15 @@ export function ConnectionsForm({
         {showInstructions ? (
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
-              Prefer API key auth: create a key under UniFi OS{" "}
-              <strong>Control Plane → Integrations</strong>, then choose{" "}
-              <code>token</code> below.
+              For <strong>Disable Internet</strong>, use{" "}
+              <code>session</code> with a local UniFi OS admin
+              username/password (not a Network “user”). Token mode cannot
+              block or unblock clients.
+            </li>
+            <li>
+              For read-only ingest only, API key auth works: create a key
+              under UniFi OS <strong>Control Plane → Integrations</strong>,
+              then choose <code>token</code> below.
             </li>
             <li>
               Use <code>https://&lt;gateway-lan-ip&gt;</code> (not{" "}
@@ -367,10 +373,9 @@ export function ConnectionsForm({
               it via the Integration API.
             </li>
             <li>
-              Or use a local UniFi OS admin with session username/password
-              (not a Network “user”).
+              Allowed UniFi writes: client block/unblock only. Pi-hole is never
+              modified.
             </li>
-            <li>Read-only: this app never changes UniFi settings.</li>
           </ul>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">

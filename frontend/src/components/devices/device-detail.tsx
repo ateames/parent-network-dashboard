@@ -9,8 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useDevice } from "@/hooks/use-device";
+import {
+  useCreateInternetRestriction,
+  useDeleteInternetRestriction,
+} from "@/hooks/use-internet-restriction";
 import { usePatchDevice } from "@/hooks/use-patch-device";
-import type { DeviceDetailOut } from "@/lib/api/types";
+import type {
+  DeviceDetailOut,
+  InternetRestrictionOut,
+} from "@/lib/api/types";
 import {
   deviceDisplayName,
   formatRelativeTime,
@@ -65,6 +72,149 @@ function DetailError({
         <RefreshCw className="size-3.5" />
         {isFetching ? "Retrying…" : "Try again"}
       </Button>
+    </div>
+  );
+}
+
+function restrictionLabel(restriction: InternetRestrictionOut): string {
+  if (restriction.expires_at) {
+    return `Blocked until ${formatRelativeTime(restriction.expires_at)}`;
+  }
+  return "Blocked until re-enabled";
+}
+
+function InternetRestrictionPanel({ device }: { device: DeviceDetailOut }) {
+  const create = useCreateInternetRestriction();
+  const remove = useDeleteInternetRestriction();
+  const [minutes, setMinutes] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const active = device.internet_restriction ?? null;
+
+  useEffect(() => {
+    setMinutes("");
+    setConfirming(false);
+  }, [device.id, active?.id]);
+
+  function onDisable(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = minutes.trim();
+    const parsed =
+      trimmed.length === 0 ? null : Number.parseInt(trimmed, 10);
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < 1)) {
+      return;
+    }
+    create.mutate({
+      deviceId: device.id,
+      body: { minutes: parsed },
+    });
+  }
+
+  if (active && active.status === "active") {
+    return (
+      <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className="border-destructive/40 bg-destructive/10 text-destructive"
+            >
+              Internet disabled
+            </Badge>
+            <span className="text-sm text-muted-foreground">
+              {restrictionLabel(active)}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            UniFi client block for{" "}
+            <span className="font-mono text-xs">{active.mac}</span>. This may
+            also cut LAN access, not just the internet.
+          </p>
+          {active.error ? (
+            <p className="text-sm text-destructive" role="alert">
+              Last error: {active.error}
+            </p>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="default"
+          disabled={remove.isPending}
+          onClick={() => remove.mutate({ deviceId: device.id })}
+        >
+          {remove.isPending ? "Re-enabling…" : "Re-enable Internet"}
+        </Button>
+        {remove.isError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {remove.error instanceof Error
+              ? remove.error.message
+              : "Couldn’t re-enable internet"}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <p className="text-sm text-muted-foreground">
+        Blocks this device at UniFi (<code className="text-xs">block-sta</code>
+        ). Leave minutes blank to disable indefinitely. Requires UniFi session
+        auth.
+      </p>
+      {!confirming ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setConfirming(true)}
+        >
+          Disable Internet
+        </Button>
+      ) : (
+        <form onSubmit={onDisable} className="space-y-3">
+          <div className="space-y-1.5">
+            <label htmlFor="disable-minutes" className="text-sm font-medium">
+              Minutes (optional)
+            </label>
+            <input
+              id="disable-minutes"
+              className={fieldClassName}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              min={1}
+              placeholder="Blank = until re-enabled"
+              value={minutes}
+              onChange={(event) => setMinutes(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" size="sm" disabled={create.isPending}>
+              {create.isPending ? "Disabling…" : "Confirm disable"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={create.isPending}
+              onClick={() => {
+                setConfirming(false);
+                setMinutes("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          {create.isError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {create.error instanceof Error
+                ? create.error.message
+                : "Couldn’t disable internet"}
+            </p>
+          ) : null}
+        </form>
+      )}
     </div>
   );
 }
@@ -265,6 +415,14 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
                 ) : (
                   <Badge variant="secondary">Known</Badge>
                 )}
+                {data.internet_restriction?.status === "active" ? (
+                  <Badge
+                    variant="outline"
+                    className="border-destructive/40 bg-destructive/10 text-destructive"
+                  >
+                    Internet disabled
+                  </Badge>
+                ) : null}
                 {data.current_ip ? (
                   <span className="font-mono text-xs text-muted-foreground">
                     {data.current_ip}
@@ -305,6 +463,18 @@ export function DeviceDetail({ deviceId }: { deviceId: string }) {
 
       {data ? (
         <>
+          <section className="space-y-3">
+            <div className="space-y-0.5">
+              <h2 className="text-base font-semibold tracking-tight">
+                Internet access
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Temporarily or indefinitely block this device via UniFi.
+              </p>
+            </div>
+            <InternetRestrictionPanel device={data} />
+          </section>
+
           <section className="space-y-3">
             <div className="space-y-0.5">
               <h2 className="text-base font-semibold tracking-tight">

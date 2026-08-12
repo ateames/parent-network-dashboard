@@ -1,4 +1,4 @@
-"""One-shot connection probes for Pi-hole and UniFi (read-only authenticate)."""
+"""One-shot connection probes for Pi-hole and UniFi (authenticate / read)."""
 
 from __future__ import annotations
 

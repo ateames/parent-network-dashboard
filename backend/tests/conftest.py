@@ -43,6 +43,7 @@ _TRUNCATE_TABLES = (
     "dns_activity",
     "ip_assignment",
     "device_identifier",
+    "device_restriction",
     "person_device",
     "expected_activity_schedule",
     "person",

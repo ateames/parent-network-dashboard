@@ -76,13 +76,20 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
-    const message =
-      typeof payload === "object" &&
-      payload !== null &&
-      "detail" in payload &&
-      typeof (payload as { detail: unknown }).detail === "string"
-        ? (payload as { detail: string }).detail
-        : `Request failed with status ${response.status}`;
+    let message = `Request failed with status ${response.status}`;
+    if (typeof payload === "object" && payload !== null && "detail" in payload) {
+      const detail = (payload as { detail: unknown }).detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (
+        typeof detail === "object" &&
+        detail !== null &&
+        "message" in detail &&
+        typeof (detail as { message: unknown }).message === "string"
+      ) {
+        message = (detail as { message: string }).message;
+      }
+    }
     throw new ApiError(response.status, message, payload);
   }
 

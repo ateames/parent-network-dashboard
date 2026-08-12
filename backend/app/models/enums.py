@@ -104,3 +104,11 @@ class StreamEventKind(StrEnum):
     CONNECTION_FLAPPING = "connection_flapping"
     UNIFI_SECURITY_EVENT = "unifi_security_event"
     SOURCE_DATA_LOSS = "source_data_loss"
+
+
+class RestrictionStatus(StrEnum):
+    """Lifecycle of a UniFi client internet restriction."""
+
+    ACTIVE = "active"
+    LIFTED = "lifted"
+    FAILED = "failed"

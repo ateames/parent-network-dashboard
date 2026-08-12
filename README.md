@@ -2,7 +2,7 @@
 
 A LAN-only family network visibility platform that ingests **read-only** data from Pi-hole and UniFi and presents a parent-focused dashboard. Designed to run on a dedicated **Raspberry Pi (arm64)** via Docker Compose.
 
-Household data stays on your local network. Nothing in this project writes to Pi-hole or UniFi.
+Household data stays on your local network. Pi-hole is never modified. UniFi writes are limited to client block/unblock for **Disable Internet** (requires session auth).
 
 ## What runs on the Pi
 
@@ -118,7 +118,9 @@ UNIFI_SITE=default
 UNIFI_VERIFY_TLS=false
 ```
 
-Prefer **API key** auth (`UNIFI_AUTH_METHOD=token` / setup UI **token**) from UniFi OS **Control Plane → Integrations**. Token mode uses the official Integration API (`/proxy/network/integration/v1/...`) with `X-API-KEY`. Session username/password still works (`session` + `UNIFI_USERNAME` / `UNIFI_PASSWORD`) against classic Network paths (with UniFi OS `/proxy/network` fallback). Use **`https://`** LAN IPs if `.local` mDNS is unreliable from Docker. Site may be `default`, the display name, or a UUID when using token auth. The worker only **reads** these APIs.
+**Ingest** can use API key auth (`UNIFI_AUTH_METHOD=token` / setup UI **token**) from UniFi OS **Control Plane → Integrations** (Integration API + `X-API-KEY`), or session username/password (`session` + `UNIFI_USERNAME` / `UNIFI_PASSWORD`) against classic Network paths (with UniFi OS `/proxy/network` fallback).
+
+**Disable Internet** (UniFi `block-sta` / `unblock-sta`) requires **session** auth — switch the UniFi connection to `session` if you want parent controls. Token mode remains valid for read-only installs. Use **`https://`** LAN IPs if `.local` mDNS is unreliable from Docker. Site may be `default`, the display name, or a UUID when using token auth.
 
 ### UniFi syslog (controller → Pi)
 
@@ -252,7 +254,7 @@ Reboot safety: Compose services use `restart: unless-stopped`, so the stack come
 
 ## Principles (summary)
 
-- **Read-only ingestion** — never write to Pi-hole or UniFi
+- **Read-only ingestion** — never write to Pi-hole; UniFi writes limited to client block/unblock
 - **LAN-only** — household data stays on the local network
 - **Versioned logic** — derived records store a `logic_version` for replay/compare
 - **Raw payloads preserved** — append-only raw tables; never discard source data

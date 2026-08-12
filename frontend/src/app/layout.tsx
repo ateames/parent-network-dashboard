@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Parent Network Dashboard",
   description:
-    "Local family network visibility dashboard (Pi-hole + UniFi, read-only).",
+    "Local family network visibility dashboard (Pi-hole + UniFi).",
 };
 
 export default function RootLayout({

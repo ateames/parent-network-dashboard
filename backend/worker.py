@@ -20,6 +20,7 @@ from app.ingest.pihole import (
 )
 from app.ingest.unifi import run_poll_once as run_unifi_poll_once
 from app.ingest.unifi_syslog import run_syslog_listener, syslog_health_loop
+from app.restrictions import lift_expired_restrictions
 from app.settings_store import load_thresholds
 
 logging.basicConfig(
@@ -31,6 +32,7 @@ logger = logging.getLogger("worker")
 
 HEARTBEAT_INTERVAL_SECONDS = 30
 FINDINGS_INTERVAL_SECONDS = 60
+RESTRICTION_EXPIRY_INTERVAL_SECONDS = 30
 
 
 async def connect_db() -> None:
@@ -144,6 +146,22 @@ async def findings_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def restriction_expiry_loop() -> None:
+    """Lift timed UniFi client blocks after expires_at (retry on failure)."""
+    interval = RESTRICTION_EXPIRY_INTERVAL_SECONDS
+    logger.info("restriction expiry interval=%ss", interval)
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                lifted = await lift_expired_restrictions(session)
+                await session.commit()
+            if lifted:
+                logger.info("lifted expired internet restrictions count=%s", lifted)
+        except Exception:
+            logger.exception("restriction expiry pass failed")
+        await asyncio.sleep(interval)
+
+
 async def run() -> None:
     try:
         await connect_db()
@@ -152,6 +170,7 @@ async def run() -> None:
             pihole_poll_loop(),
             unifi_poll_loop(),
             findings_loop(),
+            restriction_expiry_loop(),
         ]
         if settings.unifi_syslog_enabled:
             tasks.append(run_syslog_listener())

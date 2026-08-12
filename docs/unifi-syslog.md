@@ -1,6 +1,6 @@
 # UniFi syslog → Parent Network Dashboard
 
-This stack **only receives** syslog from your UniFi Network Application / gateway. It never logs into UniFi to change settings, never acknowledges events back to the controller, and never opens an outbound management session for logging. Traffic is **one-directional**: UniFi → this Pi’s listener.
+This stack **only receives** syslog from your UniFi Network Application / gateway. The syslog path never acknowledges events back to the controller and never opens a management session for logging — traffic is **one-directional**: UniFi → this Pi’s listener. (Separate from syslog: parent **Disable Internet** actions may call UniFi `block-sta` / `unblock-sta` over the session API.)
 
 ## What you get
 

@@ -14,6 +14,7 @@ from app.models.enums import (
     IngestBatchStatus,
     IngestSource,
     PersonRole,
+    RestrictionStatus,
     SourceHealthStatus,
     StreamEventKind,
 )
@@ -29,6 +30,7 @@ from app.models.raw import (
     RawUnifiEvent,
     RawUnifiSyslog,
 )
+from app.models.restrictions import DeviceRestriction
 from app.models.settings import (
     AppThresholds,
     ConnectionSettings,
@@ -45,6 +47,7 @@ __all__ = [
     "CorrelationStatus",
     "Device",
     "DeviceIdentifier",
+    "DeviceRestriction",
     "DnsActivity",
     "DnsQuery",
     "DnsQueryStatus",
@@ -68,6 +71,7 @@ __all__ = [
     "RawUnifiClient",
     "RawUnifiEvent",
     "RawUnifiSyslog",
+    "RestrictionStatus",
     "SourceHealth",
     "SourceHealthStatus",
     "StreamEvent",
@@ -92,6 +96,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "stream_event",
         "device",
         "device_identifier",
+        "device_restriction",
         "ip_assignment",
         "person",
         "person_device",

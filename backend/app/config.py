@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     unifi_devices_path: str = "/api/s/{site}/stat/device"
     unifi_networks_path: str = "/api/s/{site}/rest/networkconf"
     unifi_events_path: str = "/api/s/{site}/stat/event"
+    # Classic station manager (block-sta / unblock-sta); session auth only.
+    unifi_stamgr_path: str = "/api/s/{site}/cmd/stamgr"
     unifi_poll_interval_seconds: int = 60
     unifi_events_limit: int = 100
     unifi_verify_tls: bool = False

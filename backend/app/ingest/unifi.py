@@ -1,4 +1,4 @@
-"""Read-only UniFi controller ingestion (live poll + offline fixture replay)."""
+"""UniFi controller client: read-only ingest + client block/unblock writes."""
 
 from __future__ import annotations
 
@@ -64,7 +64,11 @@ class UnifiSnapshot:
 
 
 class UnifiClientError(RuntimeError):
-    """Raised when a read-only UniFi API call fails."""
+    """Raised when a UniFi API call fails."""
+
+
+class UnifiControlUnsupportedError(UnifiClientError):
+    """Raised when client block/unblock requires session auth but token mode is set."""
 
 
 _UNIFI_OS_RETRY_STATUSES = frozenset({401, 403, 404})
@@ -182,7 +186,7 @@ def resolve_integration_site_id(
 
 
 class UnifiClient:
-    """httpx client for UniFi controller reads only — never writes config."""
+    """httpx client for UniFi reads plus client block-sta / unblock-sta only."""
 
     def __init__(
         self,
@@ -487,6 +491,67 @@ class UnifiClient:
             networks=networks,
             events=events,
         )
+
+    def _require_session_for_control(self) -> None:
+        if self._uses_integration_api():
+            raise UnifiControlUnsupportedError(
+                "UniFi client block/unblock requires UNIFI_AUTH_METHOD=session "
+                "(username/password). Token / Integrations API cannot issue stamgr."
+            )
+
+    async def _post_stamgr(self, *, cmd: str, mac: str) -> None:
+        """POST classic /cmd/stamgr with UniFi OS /proxy/network retry."""
+        self._require_session_for_control()
+        try:
+            normalized = normalize_mac(mac)
+        except ValueError as exc:
+            raise UnifiClientError(f"Invalid MAC for UniFi stamgr: {mac!r}") from exc
+        if not self._authenticated:
+            await self.authenticate()
+        path = self._resolve_get_path(self._cfg.unifi_stamgr_path)
+        payload = {"cmd": cmd, "mac": normalized}
+        headers = {
+            **self._auth_headers(),
+            "Content-Type": "application/json",
+        }
+        response = await self._http.post(path, json=payload, headers=headers)
+        if response.status_code in _UNIFI_OS_RETRY_STATUSES:
+            proxied = unifi_os_network_path(path)
+            if proxied is not None:
+                logger.info(
+                    "UniFi POST %s returned HTTP %s; retrying %s",
+                    path,
+                    response.status_code,
+                    proxied,
+                )
+                response = await self._http.post(
+                    proxied, json=payload, headers=headers
+                )
+                if response.status_code < 400:
+                    self._prefer_unifi_os_paths = True
+                    path = proxied
+        if response.status_code >= 400:
+            raise UnifiClientError(
+                format_unifi_http_error(f"UniFi stamgr {cmd} failed", response)
+            )
+        # Classic API often returns HTTP 200 with meta.rc == "error".
+        try:
+            body = response.json()
+        except ValueError:
+            return
+        if isinstance(body, Mapping):
+            meta = body.get("meta")
+            if isinstance(meta, Mapping) and str(meta.get("rc", "")).lower() == "error":
+                msg = meta.get("msg") or meta.get("message") or "unknown error"
+                raise UnifiClientError(f"UniFi stamgr {cmd} rejected: {msg}")
+
+    async def block_client(self, mac: str) -> None:
+        """Block a Wi‑Fi/LAN client by MAC (classic block-sta). Session auth only."""
+        await self._post_stamgr(cmd="block-sta", mac=mac)
+
+    async def unblock_client(self, mac: str) -> None:
+        """Unblock a previously blocked client by MAC. Session auth only."""
+        await self._post_stamgr(cmd="unblock-sta", mac=mac)
 
 
 def extract_data_list(body: Any) -> list[dict[str, Any]]:
